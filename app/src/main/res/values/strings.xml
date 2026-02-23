@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">BT Messenger</string>
+    <string name="tagline">Secure. Local. Ephemeral.</string>
+    <string name="create_group">Create Group</string>
+    <string name="join_group">Join Group</string>
+    <string name="group_name">Group Name</string>
+    <string name="password">Password</string>
+    <string name="create_and_host">Create &amp; Host</string>
+    <string name="scan_for_groups">Scan for Groups</string>
+    <string name="scanning">Scanning…</string>
+    <string name="send">Send</string>
+    <string name="type_message">Type a message…</string>
+    <string name="enter_password">Enter group password</string>
+    <string name="connecting">Connecting…</string>
+    <string name="auth_failed">Authentication failed. Wrong password.</string>
+    <string name="bt_not_supported">Bluetooth is not supported on this device</string>
+    <string name="bt_not_enabled">Please enable Bluetooth to continue</string>
+    <string name="permission_required">Bluetooth permissions are required</string>
+    <string name="no_devices_found">No devices found. Try scanning again.</string>
+    <string name="session_timeout">Group session ended due to inactivity</string>
+    <string name="group_created">Group created! Waiting for members…</string>
+    <string name="connected">Connected!</string>
+    <string name="disconnected">Disconnected</string>
+    <string name="members">Members</string>
+    <string name="waiting_for_members">Waiting for members to join…</string>
+    <string name="leave_group">Leave Group</string>
+    <string name="msg_ttl_info">Messages disappear after 1 minute</string>
+    <string name="session_warning">Session will end after 30 min of inactivity</string>
+</resources>
