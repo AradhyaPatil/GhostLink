@@ -23,30 +23,38 @@ import com.wmn.bluetoothmessenger.util.PermissionHelper;
 /**
  * Activity for creating and hosting a Bluetooth messaging group.
  * The host starts a server socket and waits for clients to connect.
- * Once a client connects, both navigate to the ChatActivity.
+ * The host stays on this screen while members join; tapping "Start Chat"
+ * carries all live connections into ChatActivity via the singleton
+ * BluetoothService.
  */
 public class CreateGroupActivity extends AppCompatActivity {
 
     private EditText etGroupName, etPassword;
-    private Button btnCreate;
-    private TextView tvStatus;
+    private Button btnCreate, btnStartChat;
+    private TextView tvStatus, tvMemberCount;
     private ProgressBar progressBar;
 
     private BluetoothAdapter bluetoothAdapter;
-    private BluetoothService bluetoothService;
     private GroupManager groupManager;
     private Handler handler;
+
+    /** The hash computed from the user-entered password; passed to ChatActivity. */
+    private String passwordHash = "";
+    /** Number of clients that have successfully authenticated. */
+    private int joinedCount = 0;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_create_group);
 
-        etGroupName = findViewById(R.id.et_group_name);
-        etPassword = findViewById(R.id.et_password);
-        btnCreate = findViewById(R.id.btn_create);
-        tvStatus = findViewById(R.id.tv_status);
-        progressBar = findViewById(R.id.progress_bar);
+        etGroupName   = findViewById(R.id.et_group_name);
+        etPassword    = findViewById(R.id.et_password);
+        btnCreate     = findViewById(R.id.btn_create);
+        tvStatus      = findViewById(R.id.tv_status);
+        progressBar   = findViewById(R.id.progress_bar);
+        btnStartChat  = findViewById(R.id.btn_start_chat);
+        tvMemberCount = findViewById(R.id.tv_member_count_create);
 
         TextView btnBack = findViewById(R.id.btn_back);
         btnBack.setOnClickListener(v -> finish());
@@ -59,12 +67,15 @@ public class CreateGroupActivity extends AppCompatActivity {
             public void handleMessage(android.os.Message msg) {
                 switch (msg.what) {
                     case Constants.MSG_CONNECTED:
+                        // A new member authenticated and connected
                         String deviceName = (String) msg.obj;
+                        joinedCount++;
                         tvStatus.setText("✓ " + deviceName + " joined!");
                         tvStatus.setVisibility(View.VISIBLE);
-
-                        // Navigate to chat
-                        navigateToChat();
+                        tvMemberCount.setText(joinedCount + (joinedCount == 1 ? " member waiting" : " members waiting"));
+                        tvMemberCount.setVisibility(View.VISIBLE);
+                        // Reveal "Start Chat" button on first join
+                        btnStartChat.setVisibility(View.VISIBLE);
                         break;
 
                     case Constants.MSG_DISCONNECTED:
@@ -74,28 +85,21 @@ public class CreateGroupActivity extends AppCompatActivity {
             }
         };
 
-        bluetoothService = new BluetoothService(bluetoothAdapter, handler);
+        // Initialise the singleton BluetoothService early so its Handler is set
+        BluetoothService.init(bluetoothAdapter, handler);
 
         btnCreate.setOnClickListener(v -> createGroup());
+        btnStartChat.setOnClickListener(v -> navigateToChat());
     }
 
     @SuppressWarnings("MissingPermission")
     private void createGroup() {
         String groupName = etGroupName.getText().toString().trim();
-        String password = etPassword.getText().toString().trim();
+        String password  = etPassword.getText().toString().trim();
 
-        if (groupName.isEmpty()) {
-            etGroupName.setError("Enter a group name");
-            return;
-        }
-        if (password.isEmpty()) {
-            etPassword.setError("Enter a password");
-            return;
-        }
-        if (password.length() < 4) {
-            etPassword.setError("Password must be at least 4 characters");
-            return;
-        }
+        if (groupName.isEmpty()) { etGroupName.setError("Enter a group name"); return; }
+        if (password.isEmpty())  { etPassword.setError("Enter a password");    return; }
+        if (password.length() < 4) { etPassword.setError("Password must be at least 4 characters"); return; }
 
         if (!PermissionHelper.hasBluetoothPermissions(this)) {
             PermissionHelper.requestBluetoothPermissions(this);
@@ -106,33 +110,34 @@ public class CreateGroupActivity extends AppCompatActivity {
         String deviceName;
         try {
             deviceName = bluetoothAdapter.getName();
-            if (deviceName == null)
-                deviceName = "Host";
+            if (deviceName == null) deviceName = "Host";
         } catch (SecurityException e) {
             deviceName = "Host";
         }
 
-        // Create the group
+        // Create the group and compute hash
         groupManager.createGroup(groupName, password, deviceName);
+        passwordHash = GroupInfo.hashPassword(password);
 
-        // Set up authentication on the service
-        String passwordHash = GroupInfo.hashPassword(password);
-        bluetoothService.setPasswordHash(passwordHash);
-        bluetoothService.setAuthCallback(new BluetoothService.AuthCallback() {
+        // Configure the singleton service with auth details
+        BluetoothService svc = BluetoothService.getInstance();
+        svc.setPasswordHash(passwordHash);
+        svc.setAuthCallback(new BluetoothService.AuthCallback() {
             @Override
             public boolean onAuthRequest(String receivedHash) {
                 return groupManager.authenticate(receivedHash);
             }
 
             @Override
-            public void onAuthSuccess(String deviceName) {
-                groupManager.addMember(deviceName);
+            public void onAuthSuccess(String name) {
+                groupManager.addMember(name);
+                // MSG_CONNECTED is also fired; member-count update happens there
             }
 
             @Override
-            public void onAuthFail(String deviceName) {
+            public void onAuthFail(String name) {
                 runOnUiThread(() -> Toast.makeText(CreateGroupActivity.this,
-                        "Auth failed for: " + deviceName, Toast.LENGTH_SHORT).show());
+                        "Auth failed for: " + name, Toast.LENGTH_SHORT).show());
             }
         });
 
@@ -148,29 +153,30 @@ public class CreateGroupActivity extends AppCompatActivity {
         }
 
         // Start hosting
-        bluetoothService.startHosting();
+        svc.startHosting();
 
         // Update UI
         btnCreate.setEnabled(false);
+        etGroupName.setEnabled(false);
+        etPassword.setEnabled(false);
         tvStatus.setText(R.string.waiting_for_members);
         tvStatus.setVisibility(View.VISIBLE);
         progressBar.setVisibility(View.VISIBLE);
     }
 
     private void navigateToChat() {
+        if (groupManager.getCurrentGroup() == null) return;
         Intent intent = new Intent(this, ChatActivity.class);
-        intent.putExtra(Constants.EXTRA_GROUP_NAME,
-                groupManager.getCurrentGroup().getGroupName());
-        intent.putExtra(Constants.EXTRA_PASSWORD_HASH,
-                groupManager.getCurrentGroup().getPasswordHash());
-        intent.putExtra(Constants.EXTRA_IS_HOST, true);
+        intent.putExtra(Constants.EXTRA_GROUP_NAME,    groupManager.getCurrentGroup().getGroupName());
+        intent.putExtra(Constants.EXTRA_PASSWORD_HASH, passwordHash);
+        intent.putExtra(Constants.EXTRA_IS_HOST,       true);
         startActivity(intent);
-        finish();
+        finish();   // CreateGroupActivity is done; live connections stay in singleton
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        // Don't disconnect if navigating to chat - the service will be recreated there
+        // Do NOT destroy the singleton – live connections must survive the transition
     }
 }

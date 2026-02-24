@@ -45,8 +45,9 @@ public class JoinGroupActivity extends AppCompatActivity {
     private TextView tvEmpty, tvStatus;
 
     private BluetoothAdapter bluetoothAdapter;
-    private BluetoothService bluetoothService;
     private Handler handler;
+    /** Hash sent to the host for auth; forwarded to ChatActivity so it can re-auth new members. */
+    private String passwordHash = "";
 
     private final List<BluetoothDevice> discoveredDevices = new ArrayList<>();
     private DeviceAdapter deviceAdapter;
@@ -93,7 +94,8 @@ public class JoinGroupActivity extends AppCompatActivity {
             }
         };
 
-        bluetoothService = new BluetoothService(bluetoothAdapter, handler);
+        // Initialise singleton (no active connection yet on the join side)
+        BluetoothService.init(bluetoothAdapter, handler);
 
         // Register discovery broadcast receiver
         IntentFilter filter = new IntentFilter();
@@ -198,21 +200,25 @@ public class JoinGroupActivity extends AppCompatActivity {
         tvStatus.setText(R.string.connecting);
         tvStatus.setVisibility(View.VISIBLE);
 
+        // Store hash so ChatActivity can use it if it needs to re-auth new members as host
+        passwordHash = com.wmn.bluetoothmessenger.model.GroupInfo.hashPassword(password);
+
         try {
             bluetoothAdapter.cancelDiscovery();
         } catch (SecurityException ignored) {
         }
 
-        bluetoothService.connectToHost(device, password);
+        BluetoothService.getInstance().connectToHost(device, password);
     }
 
     @SuppressWarnings("MissingPermission")
     private void navigateToChat(String hostDeviceName) {
         Intent intent = new Intent(this, ChatActivity.class);
-        intent.putExtra(Constants.EXTRA_GROUP_NAME, hostDeviceName + "'s Group");
-        intent.putExtra(Constants.EXTRA_IS_HOST, false);
+        intent.putExtra(Constants.EXTRA_GROUP_NAME,    hostDeviceName + "'s Group");
+        intent.putExtra(Constants.EXTRA_PASSWORD_HASH, passwordHash);
+        intent.putExtra(Constants.EXTRA_IS_HOST,       false);
         startActivity(intent);
-        finish();
+        finish();   // live connection stays in singleton BluetoothService
     }
 
     @Override
@@ -222,13 +228,12 @@ public class JoinGroupActivity extends AppCompatActivity {
             unregisterReceiver(discoveryReceiver);
         } catch (Exception ignored) {
         }
-
         try {
-            if (bluetoothAdapter != null && bluetoothAdapter.isDiscovering()) {
+            if (bluetoothAdapter != null && bluetoothAdapter.isDiscovering())
                 bluetoothAdapter.cancelDiscovery();
-            }
         } catch (SecurityException ignored) {
         }
+        // Do NOT destroy singleton — the live connection must carry over to ChatActivity
     }
 
     // ========== Device List Adapter ==========

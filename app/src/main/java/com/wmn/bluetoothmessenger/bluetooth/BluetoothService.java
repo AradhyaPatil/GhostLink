@@ -26,8 +26,49 @@ public class BluetoothService {
 
     private static final String TAG = "BluetoothService";
 
+    // ── Singleton ──────────────────────────────────────────────────────────────
+    private static volatile BluetoothService instance;
+
+    /**
+     * Create (or replace) the singleton instance. Call once from the Activity
+     * that starts the Bluetooth session (CreateGroupActivity / JoinGroupActivity).
+     */
+    public static BluetoothService init(BluetoothAdapter adapter, Handler handler) {
+        instance = new BluetoothService(adapter, handler);
+        return instance;
+    }
+
+    /** Return the live singleton; null if not yet initialised. */
+    public static BluetoothService getInstance() {
+        return instance;
+    }
+
+    /** Swap the UI handler when moving between Activities. */
+    public void setHandler(Handler newHandler) {
+        this.handler = newHandler;
+        // Also update every live ConnectedThread so in-flight messages reach the new handler
+        synchronized (connectedThreads) {
+            for (ConnectedThread thread : connectedThreads) {
+                thread.setHandler(newHandler);
+            }
+        }
+    }
+
+    /**
+     * Disconnect everything and clear the singleton reference.
+     * Call when the user fully leaves (leaveGroup / SESSION_END).
+     */
+    public static void destroyInstance() {
+        BluetoothService svc = instance;
+        instance = null;
+        if (svc != null) {
+            svc.disconnect();
+        }
+    }
+    // ──────────────────────────────────────────────────────────────────────────
+
     private final BluetoothAdapter adapter;
-    private final Handler handler;
+    private volatile Handler handler;
 
     private AcceptThread acceptThread;
     private final List<ConnectedThread> connectedThreads = Collections.synchronizedList(new ArrayList<>());
@@ -46,7 +87,7 @@ public class BluetoothService {
 
     private AuthCallback authCallback;
 
-    public BluetoothService(BluetoothAdapter adapter, Handler handler) {
+    private BluetoothService(BluetoothAdapter adapter, Handler handler) {
         this.adapter = adapter;
         this.handler = handler;
     }
@@ -251,6 +292,22 @@ public class BluetoothService {
                     count++;
             }
             return count;
+        }
+    }
+
+    /**
+     * Get the device names of all currently active connections.
+     * Used by ChatActivity to seed the groupManager with pre-joined members.
+     */
+    public List<String> getConnectedDeviceNames() {
+        synchronized (connectedThreads) {
+            List<String> names = new ArrayList<>();
+            for (ConnectedThread thread : connectedThreads) {
+                if (thread.isConnected()) {
+                    names.add(thread.getDeviceName());
+                }
+            }
+            return names;
         }
     }
 

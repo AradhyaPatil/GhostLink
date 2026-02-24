@@ -49,7 +49,9 @@ public class ChatActivity extends AppCompatActivity {
     private Button btnSend;
     private TextView tvGroupName, tvMemberCount, btnLeave, btnBack;
 
-    private BluetoothAdapter bluetoothAdapter;
+    // ── Fields ────────────────────────────────────────────────────────────────
+    // (bluetoothService is obtained from the singleton; no local new BluetoothService())
+    // ─────────────────────────────────────────────────────────────────────────
     private BluetoothService bluetoothService;
     private GroupManager groupManager;
     private MessageManager messageManager;
@@ -77,22 +79,21 @@ public class ChatActivity extends AppCompatActivity {
             groupName = "Group";
 
         // Init views
-        rvMessages = findViewById(R.id.rv_messages);
-        etMessage = findViewById(R.id.et_message);
-        btnSend = findViewById(R.id.btn_send);
-        tvGroupName = findViewById(R.id.tv_group_name);
+        rvMessages    = findViewById(R.id.rv_messages);
+        etMessage     = findViewById(R.id.et_message);
+        btnSend       = findViewById(R.id.btn_send);
+        tvGroupName   = findViewById(R.id.tv_group_name);
         tvMemberCount = findViewById(R.id.tv_member_count);
-        btnLeave = findViewById(R.id.btn_leave);
-        btnBack = findViewById(R.id.btn_back);
+        btnLeave      = findViewById(R.id.btn_leave);
+        btnBack       = findViewById(R.id.btn_back);
 
         tvGroupName.setText(groupName);
 
-        // Get device name
-        bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
+        // Get device name – no BluetoothAdapter reference needed after this point
+        BluetoothAdapter bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
         try {
             myDeviceName = bluetoothAdapter.getName();
-            if (myDeviceName == null)
-                myDeviceName = "Me";
+            if (myDeviceName == null) myDeviceName = "Me";
         } catch (SecurityException e) {
             myDeviceName = "Me";
         }
@@ -130,8 +131,13 @@ public class ChatActivity extends AppCompatActivity {
     private void setupGroupManager() {
         groupManager = new GroupManager();
         if (isHost) {
+            // BUG FIX: use the REAL passwordHash instead of hard-coding ""
             String passwordHash = getIntent().getStringExtra(Constants.EXTRA_PASSWORD_HASH);
-            groupManager.createGroup(groupName, "", myDeviceName);
+            if (passwordHash == null) passwordHash = "";
+            // GroupInfo stores the hash directly; pass the pre-hashed value
+            // via setJoinedGroup-style approach so we don't re-hash it.
+            // We create the group with the empty password slot and then fix it:
+            groupManager.createGroupWithHash(groupName, passwordHash, myDeviceName);
         } else {
             groupManager.setJoinedGroup(groupName, "Host", myDeviceName);
         }
@@ -209,11 +215,14 @@ public class ChatActivity extends AppCompatActivity {
                         break;
 
                     case Constants.MSG_CONNECTED:
-                        String deviceName = (String) msg.obj;
-                        groupManager.addMember(deviceName);
-                        addSystemMessage("📱 " + deviceName + " joined");
-                        updateMemberCount();
-                        sessionManager.resetActivity();
+                        // Only the HOST receives this (new member finished auth)
+                        if (isHost) {
+                            String deviceName = (String) msg.obj;
+                            groupManager.addMember(deviceName);
+                            addSystemMessage("📱 " + deviceName + " joined");
+                            updateMemberCount();
+                            sessionManager.resetActivity();
+                        }
                         break;
 
                     case Constants.MSG_DISCONNECTED:
@@ -226,7 +235,21 @@ public class ChatActivity extends AppCompatActivity {
             }
         };
 
-        bluetoothService = new BluetoothService(bluetoothAdapter, btHandler);
+        // BUG FIX ①: attach to the LIVE singleton instead of creating a new instance
+        bluetoothService = BluetoothService.getInstance();
+        if (bluetoothService == null) {
+            Toast.makeText(this, "Bluetooth session lost. Please restart.", Toast.LENGTH_LONG).show();
+            finish();
+            return;
+        }
+        bluetoothService.setHandler(btHandler);
+
+        // Seed the groupManager with members that were already connected before
+        // this Activity started (e.g. members who joined during CreateGroupActivity).
+        for (String name : bluetoothService.getConnectedDeviceNames()) {
+            groupManager.addMember(name);
+        }
+        updateMemberCount();
 
         if (isHost) {
             String passwordHash = getIntent().getStringExtra(Constants.EXTRA_PASSWORD_HASH);
@@ -239,7 +262,8 @@ public class ChatActivity extends AppCompatActivity {
 
                 @Override
                 public void onAuthSuccess(String deviceName) {
-                    groupManager.addMember(deviceName);
+                    // BUG FIX ③: MSG_CONNECTED already calls groupManager.addMember().
+                    // Do NOT call it again here to prevent duplicate member entries.
                     sessionManager.resetActivity();
                 }
 
@@ -248,7 +272,8 @@ public class ChatActivity extends AppCompatActivity {
                     uiHandler.post(() -> addSystemMessage("🚫 Auth failed: " + deviceName));
                 }
             });
-            bluetoothService.startHosting();
+            // BUG FIX ① continued: AcceptThread is ALREADY running in the singleton.
+            // Do NOT call startHosting() again; doing so would reset pending connections.
         }
     }
 
@@ -278,10 +303,16 @@ public class ChatActivity extends AppCompatActivity {
                 }
             }
         } else if (rawMessage.startsWith(Constants.PROTO_JOIN)) {
-            String deviceName = rawMessage.substring(Constants.PROTO_JOIN.length());
-            groupManager.addMember(deviceName);
-            addSystemMessage("📱 " + deviceName + " joined");
-            updateMemberCount();
+            // BUG FIX: Host learns of new members via MSG_CONNECTED (not via PROTO_JOIN broadcast).
+            // Clients learn of OTHER members via PROTO_JOIN.  Also skip self-join notifications.
+            if (!isHost) {
+                String deviceName = rawMessage.substring(Constants.PROTO_JOIN.length());
+                if (!deviceName.equals(myDeviceName)) {
+                    groupManager.addMember(deviceName);
+                    addSystemMessage("\uD83D\uDCF1 " + deviceName + " joined");
+                    updateMemberCount();
+                }
+            }
         } else if (rawMessage.startsWith(Constants.PROTO_LEAVE)) {
             String deviceName = rawMessage.substring(Constants.PROTO_LEAVE.length());
             groupManager.removeMember(deviceName);
@@ -336,14 +367,18 @@ public class ChatActivity extends AppCompatActivity {
     }
 
     private void leaveGroup() {
-        // Notify peers
-        bluetoothService.broadcastMessage(Constants.PROTO_LEAVE + myDeviceName);
+        // Notify peers we are leaving
+        if (bluetoothService != null) {
+            bluetoothService.broadcastMessage(Constants.PROTO_LEAVE + myDeviceName);
+        }
 
-        // Clean up
-        bluetoothService.disconnect();
+        // Shut down managers
         messageManager.shutdown();
         sessionManager.shutdown();
         groupManager.clearGroup();
+
+        // BUG FIX: fully destroy the singleton so connections don't linger
+        BluetoothService.destroyInstance();
 
         // Return to main
         finish();
@@ -358,11 +393,12 @@ public class ChatActivity extends AppCompatActivity {
     protected void onDestroy() {
         super.onDestroy();
         try {
-            bluetoothService.disconnect();
             messageManager.shutdown();
             sessionManager.shutdown();
         } catch (Exception ignored) {
         }
+        // Do NOT destroy the singleton here — leaveGroup() handles that explicitly.
+        // This prevents premature teardown on orientation change / back-stack pop.
     }
 
     // ========== Message Adapter ==========
