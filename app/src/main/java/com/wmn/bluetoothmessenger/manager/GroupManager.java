@@ -26,6 +26,17 @@ public class GroupManager {
     }
 
     /**
+     * Create a group using a pre-computed password hash so the hash is not
+     * hashed a second time.  Used by ChatActivity when the host transitions from
+     * CreateGroupActivity and the hash is already available via the Intent.
+     */
+    public void createGroupWithHash(String groupName, String passwordHash, String hostDeviceName) {
+        currentGroup = GroupInfo.withHash(groupName, passwordHash, hostDeviceName);
+        members.clear();
+        members.add(hostDeviceName);
+    }
+
+    /**
      * Authenticate a joining user by comparing password hashes.
      */
     public boolean authenticate(String passwordHash) {

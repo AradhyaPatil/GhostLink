@@ -20,6 +20,22 @@ public class GroupInfo {
         this.creationTime = System.currentTimeMillis();
     }
 
+    /**
+     * Constructor that accepts a pre-computed hash (avoids double-hashing).
+     * Use when the hash was already computed externally (e.g. passed via Intent).
+     */
+    public static GroupInfo withHash(String groupName, String precomputedHash, String hostDeviceName) {
+        return new GroupInfo(groupName, precomputedHash, hostDeviceName, true);
+    }
+
+    /** Private constructor for the pre-computed-hash path. */
+    private GroupInfo(String groupName, String precomputedHash, String hostDeviceName, boolean hashAlreadyComputed) {
+        this.groupName = groupName;
+        this.passwordHash = precomputedHash;   // stored as-is, not re-hashed
+        this.hostDeviceName = hostDeviceName;
+        this.creationTime = System.currentTimeMillis();
+    }
+
     public String getGroupName() {
         return groupName;
     }

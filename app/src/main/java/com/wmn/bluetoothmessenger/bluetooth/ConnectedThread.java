@@ -23,7 +23,7 @@ public class ConnectedThread extends Thread {
     private final BluetoothSocket socket;
     private final InputStream inputStream;
     private final OutputStream outputStream;
-    private final Handler handler;
+    private volatile Handler handler;   // volatile so setHandler() is visible across threads
     private final String deviceName;
     private volatile boolean running = true;
 
@@ -92,6 +92,11 @@ public class ConnectedThread extends Thread {
 
     public String getDeviceName() {
         return deviceName;
+    }
+
+    /** Swap the UI handler so that this thread delivers messages to a new Activity. */
+    public void setHandler(Handler newHandler) {
+        this.handler = newHandler;
     }
 
     public boolean isConnected() {
