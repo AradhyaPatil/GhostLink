@@ -25,15 +25,15 @@
         android:textColor="@color/text_primary"
         android:textSize="28sp"
         android:textStyle="bold"
-        android:layout_marginBottom="8dp" />
+        android:layout_marginBottom="4dp" />
 
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Discover nearby groups"
+        android:text="Discover and join nearby rooms"
         android:textColor="@color/text_secondary"
         android:textSize="14sp"
-        android:layout_marginBottom="24dp" />
+        android:layout_marginBottom="20dp" />
 
     <!-- Scan Button -->
     <Button
@@ -56,7 +56,7 @@
         android:gravity="center"
         android:orientation="horizontal"
         android:visibility="gone"
-        android:layout_marginBottom="16dp">
+        android:layout_marginBottom="12dp">
 
         <ProgressBar
             android:layout_width="20dp"
@@ -72,18 +72,19 @@
             android:layout_marginStart="8dp" />
     </LinearLayout>
 
-    <!-- Discovered Devices List -->
+    <!-- Available Rooms Label -->
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Nearby Devices"
+        android:text="@string/available_rooms"
         android:textColor="@color/text_secondary"
         android:textSize="13sp"
         android:textStyle="bold"
         android:letterSpacing="0.1"
-        android:layout_marginBottom="12dp"
-        android:layout_marginTop="8dp" />
+        android:layout_marginBottom="10dp"
+        android:layout_marginTop="4dp" />
 
+    <!-- Discovered Rooms List -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/rv_devices"
         android:layout_width="match_parent"
@@ -99,12 +100,87 @@
         android:layout_height="0dp"
         android:layout_weight="1"
         android:gravity="center"
-        android:text="@string/no_devices_found"
+        android:text="@string/no_rooms_found"
         android:textColor="@color/text_secondary"
         android:textSize="14sp"
         android:visibility="visible" />
 
-    <!-- Status -->
+    <!-- ═══════ Join Section (appears when a room is selected) ═══════ -->
+    <LinearLayout
+        android:id="@+id/join_section"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:visibility="gone"
+        android:background="@drawable/rounded_input"
+        android:padding="16dp"
+        android:layout_marginTop="8dp">
+
+        <!-- Selected room indicator -->
+        <TextView
+            android:id="@+id/tv_selected_room"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Selected: —"
+            android:textColor="@color/accent"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="12dp" />
+
+        <!-- Password Input -->
+        <EditText
+            android:id="@+id/et_join_password"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:background="@drawable/rounded_input"
+            android:hint="@string/enter_room_password"
+            android:textColor="@color/text_primary"
+            android:textColorHint="@color/text_secondary"
+            android:textSize="15sp"
+            android:paddingStart="16dp"
+            android:paddingEnd="16dp"
+            android:inputType="textPassword"
+            android:maxLines="1"
+            android:layout_marginBottom="8dp" />
+
+        <!-- Error Message -->
+        <TextView
+            android:id="@+id/tv_error"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="@color/error"
+            android:textSize="13sp"
+            android:visibility="gone"
+            android:layout_marginBottom="8dp" />
+
+        <!-- Join Button + Progress -->
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="48dp">
+
+            <Button
+                android:id="@+id/btn_join_room"
+                android:layout_width="match_parent"
+                android:layout_height="48dp"
+                android:background="@drawable/rounded_button"
+                android:text="@string/join_room"
+                android:textColor="@color/primary_dark"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:textAllCaps="false" />
+
+            <ProgressBar
+                android:id="@+id/progress_join"
+                android:layout_width="24dp"
+                android:layout_height="24dp"
+                android:layout_gravity="center"
+                android:indeterminateTint="@color/accent"
+                android:visibility="gone" />
+        </FrameLayout>
+
+    </LinearLayout>
+
+    <!-- General Status -->
     <TextView
         android:id="@+id/tv_status"
         android:layout_width="wrap_content"

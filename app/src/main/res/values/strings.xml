@@ -27,4 +27,13 @@
     <string name="leave_group">Leave Group</string>
     <string name="msg_ttl_info">Messages disappear after 1 minute</string>
     <string name="session_warning">Session will end after 30 min of inactivity</string>
+    <string name="available_rooms">Available Rooms</string>
+    <string name="join_room">Join Room</string>
+    <string name="wrong_password">Wrong password. Please try again.</string>
+    <string name="connection_failed_msg">Could not connect to room. Please try again.</string>
+    <string name="select_a_room">Select a room above to join</string>
+    <string name="enter_room_password">Enter room password</string>
+    <string name="no_rooms_found">No rooms found. Make sure a host is active and try scanning again.</string>
+    <string name="permission_denied_msg">Bluetooth permission denied. Grant permissions in Settings.</string>
+    <string name="joining_room">Joining room…</string>
 </resources>

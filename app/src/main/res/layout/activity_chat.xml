@@ -49,6 +49,16 @@
                 android:textSize="13sp" />
         </LinearLayout>
 
+        <!-- Change Password (host only — visibility set in code) -->
+        <TextView
+            android:id="@+id/btn_change_password"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="🔑"
+            android:textSize="20sp"
+            android:padding="8dp"
+            android:visibility="gone" />
+
         <!-- Leave Button -->
         <TextView
             android:id="@+id/btn_leave"
