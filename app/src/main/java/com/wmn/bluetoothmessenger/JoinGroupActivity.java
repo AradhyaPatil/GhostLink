@@ -16,11 +16,11 @@ import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
-import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
@@ -33,9 +33,18 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Activity for discovering nearby Bluetooth devices and joining a group.
- * Uses Bluetooth Classic discovery to find available hosts.
- * Prompts for password and performs authentication handshake.
+ * Activity for discovering nearby Bluetooth rooms and joining a group.
+ *
+ * Flow:
+ * 1. User taps "Scan for Groups" → discovers nearby hosting devices.
+ * 2. Discovered devices whose SDP name starts with "GhostLink_" are shown as
+ * rooms.
+ * 3. User taps a room → a password input section appears inline with the room
+ * name.
+ * 4. User enters the password and taps "Join Room".
+ * 5. On success → navigates directly to ChatActivity.
+ * 6. On failure → a persistent error message is shown (wrong password,
+ * connection failed, etc.).
  */
 public class JoinGroupActivity extends AppCompatActivity {
 
@@ -44,13 +53,26 @@ public class JoinGroupActivity extends AppCompatActivity {
     private RecyclerView rvDevices;
     private TextView tvEmpty, tvStatus;
 
+    // Join section views
+    private LinearLayout joinSection;
+    private TextView tvSelectedRoom, tvError;
+    private EditText etJoinPassword;
+    private Button btnJoinRoom;
+    private ProgressBar progressJoin;
+
     private BluetoothAdapter bluetoothAdapter;
     private Handler handler;
-    /** Hash sent to the host for auth; forwarded to ChatActivity so it can re-auth new members. */
+
+    /** Hash sent to the host for auth; forwarded to ChatActivity. */
     private String passwordHash = "";
 
     private final List<BluetoothDevice> discoveredDevices = new ArrayList<>();
     private DeviceAdapter deviceAdapter;
+
+    /** The device the user has selected to join. */
+    private BluetoothDevice selectedDevice;
+    /** Index of the selected item in the adapter (-1 = none). */
+    private int selectedPosition = -1;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -62,6 +84,14 @@ public class JoinGroupActivity extends AppCompatActivity {
         rvDevices = findViewById(R.id.rv_devices);
         tvEmpty = findViewById(R.id.tv_empty);
         tvStatus = findViewById(R.id.tv_status);
+
+        // Join section
+        joinSection = findViewById(R.id.join_section);
+        tvSelectedRoom = findViewById(R.id.tv_selected_room);
+        tvError = findViewById(R.id.tv_error);
+        etJoinPassword = findViewById(R.id.et_join_password);
+        btnJoinRoom = findViewById(R.id.btn_join_room);
+        progressJoin = findViewById(R.id.progress_join);
 
         TextView btnBack = findViewById(R.id.btn_back);
         btnBack.setOnClickListener(v -> finish());
@@ -81,20 +111,20 @@ public class JoinGroupActivity extends AppCompatActivity {
                     case Constants.MSG_CONNECTED:
                         tvStatus.setText(R.string.connected);
                         tvStatus.setVisibility(View.VISIBLE);
+                        setJoinLoading(false);
                         navigateToChat((String) msg.obj);
                         break;
 
                     case Constants.MSG_CONNECTION_FAILED:
-                        tvStatus.setText("Connection failed: " + msg.obj);
-                        tvStatus.setVisibility(View.VISIBLE);
-                        Toast.makeText(JoinGroupActivity.this,
-                                R.string.auth_failed, Toast.LENGTH_LONG).show();
+                        setJoinLoading(false);
+                        String reason = (String) msg.obj;
+                        showJoinError(reason);
                         break;
                 }
             }
         };
 
-        // Initialise singleton (no active connection yet on the join side)
+        // Initialise singleton
         BluetoothService.init(bluetoothAdapter, handler);
 
         // Register discovery broadcast receiver
@@ -104,7 +134,12 @@ public class JoinGroupActivity extends AppCompatActivity {
         registerReceiver(discoveryReceiver, filter);
 
         btnScan.setOnClickListener(v -> startDiscovery());
+
+        // Join button click
+        btnJoinRoom.setOnClickListener(v -> attemptJoin());
     }
+
+    // ========== Discovery ==========
 
     @SuppressWarnings("MissingPermission")
     private void startDiscovery() {
@@ -113,11 +148,12 @@ public class JoinGroupActivity extends AppCompatActivity {
             return;
         }
 
-        // Clear previous results
+        // Clear previous results and selection
         discoveredDevices.clear();
         deviceAdapter.notifyDataSetChanged();
         tvEmpty.setVisibility(View.GONE);
         rvDevices.setVisibility(View.VISIBLE);
+        clearSelection();
 
         // Start scanning
         try {
@@ -169,38 +205,71 @@ public class JoinGroupActivity extends AppCompatActivity {
         }
     };
 
-    /**
-     * Show password dialog and attempt connection.
-     */
-    private void showPasswordDialog(BluetoothDevice device) {
-        EditText etPassword = new EditText(this);
-        etPassword.setHint(R.string.enter_password);
-        etPassword.setInputType(android.text.InputType.TYPE_CLASS_TEXT |
-                android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        etPassword.setPadding(48, 32, 48, 32);
+    // ========== Room Selection ==========
 
-        new AlertDialog.Builder(this, R.style.Theme_BluetoothMessenger)
-                .setTitle("Join Group")
-                .setMessage("Enter the group password")
-                .setView(etPassword)
-                .setPositiveButton("Connect", (dialog, which) -> {
-                    String password = etPassword.getText().toString().trim();
-                    if (password.isEmpty()) {
-                        Toast.makeText(this, "Password required", Toast.LENGTH_SHORT).show();
-                        return;
-                    }
-                    connectToDevice(device, password);
-                })
-                .setNegativeButton("Cancel", null)
-                .show();
+    /**
+     * Called when the user taps a discovered room in the list.
+     */
+    private void onRoomSelected(BluetoothDevice device, int position) {
+        int oldPos = selectedPosition;
+        selectedDevice = device;
+        selectedPosition = position;
+
+        // Update previous item
+        if (oldPos >= 0 && oldPos < discoveredDevices.size()) {
+            deviceAdapter.notifyItemChanged(oldPos);
+        }
+        // Update newly selected item
+        deviceAdapter.notifyItemChanged(position);
+
+        // Show the join section with room name
+        String roomName = extractRoomName(device);
+        tvSelectedRoom.setText("🔒 " + roomName);
+        joinSection.setVisibility(View.VISIBLE);
+        etJoinPassword.setText("");
+        hideError();
+
+        // Scroll the join section into view
+        joinSection.post(() -> joinSection.requestFocus());
+    }
+
+    private void clearSelection() {
+        int oldPos = selectedPosition;
+        selectedDevice = null;
+        selectedPosition = -1;
+        if (oldPos >= 0) {
+            deviceAdapter.notifyItemChanged(oldPos);
+        }
+        joinSection.setVisibility(View.GONE);
+        etJoinPassword.setText("");
+        hideError();
+    }
+
+    // ========== Join Attempt ==========
+
+    private void attemptJoin() {
+        if (selectedDevice == null) {
+            showJoinError(getString(R.string.select_a_room));
+            return;
+        }
+
+        String password = etJoinPassword.getText().toString().trim();
+        if (password.isEmpty()) {
+            showJoinError("Password is required");
+            return;
+        }
+
+        hideError();
+        setJoinLoading(true);
+        connectToDevice(selectedDevice, password);
     }
 
     @SuppressWarnings("MissingPermission")
     private void connectToDevice(BluetoothDevice device, String password) {
-        tvStatus.setText(R.string.connecting);
+        tvStatus.setText(R.string.joining_room);
         tvStatus.setVisibility(View.VISIBLE);
 
-        // Store hash so ChatActivity can use it if it needs to re-auth new members as host
+        // Store hash so ChatActivity can use it
         passwordHash = com.wmn.bluetoothmessenger.model.GroupInfo.hashPassword(password);
 
         try {
@@ -211,14 +280,80 @@ public class JoinGroupActivity extends AppCompatActivity {
         BluetoothService.getInstance().connectToHost(device, password);
     }
 
+    // ========== Error & Loading ==========
+
+    private void showJoinError(String errorMessage) {
+        tvError.setVisibility(View.VISIBLE);
+
+        // Provide user-friendly error messages
+        if (errorMessage != null && errorMessage.contains("Authentication failed")) {
+            tvError.setText(R.string.wrong_password);
+        } else if (errorMessage != null && errorMessage.contains("Permission denied")) {
+            tvError.setText(R.string.permission_denied_msg);
+        } else if (errorMessage != null) {
+            // Show the raw error if it's already a user-friendly string, otherwise
+            // wrap it in a generic connection-failed message
+            if (errorMessage.length() > 80) {
+                tvError.setText(R.string.connection_failed_msg);
+            } else {
+                tvError.setText(errorMessage);
+            }
+        } else {
+            tvError.setText(R.string.connection_failed_msg);
+        }
+
+        tvStatus.setVisibility(View.GONE);
+    }
+
+    private void hideError() {
+        tvError.setVisibility(View.GONE);
+    }
+
+    private void setJoinLoading(boolean loading) {
+        btnJoinRoom.setEnabled(!loading);
+        btnJoinRoom.setVisibility(loading ? View.INVISIBLE : View.VISIBLE);
+        progressJoin.setVisibility(loading ? View.VISIBLE : View.GONE);
+        etJoinPassword.setEnabled(!loading);
+        btnScan.setEnabled(!loading);
+    }
+
+    // ========== Navigation ==========
+
     @SuppressWarnings("MissingPermission")
     private void navigateToChat(String hostDeviceName) {
+        String roomName = selectedDevice != null ? extractRoomName(selectedDevice) : hostDeviceName + "'s Group";
         Intent intent = new Intent(this, ChatActivity.class);
-        intent.putExtra(Constants.EXTRA_GROUP_NAME,    hostDeviceName + "'s Group");
+        intent.putExtra(Constants.EXTRA_GROUP_NAME, roomName);
         intent.putExtra(Constants.EXTRA_PASSWORD_HASH, passwordHash);
-        intent.putExtra(Constants.EXTRA_IS_HOST,       false);
+        intent.putExtra(Constants.EXTRA_IS_HOST, false);
         startActivity(intent);
-        finish();   // live connection stays in singleton BluetoothService
+        finish();
+    }
+
+    // ========== Helpers ==========
+
+    /**
+     * Extract the room name from a Bluetooth device.
+     * If the device name starts with "GhostLink_", strip the prefix to get the room
+     * name.
+     * Otherwise, fall back to the device name or MAC address.
+     */
+    @SuppressWarnings("MissingPermission")
+    private String extractRoomName(BluetoothDevice device) {
+        String name;
+        try {
+            name = device.getName();
+        } catch (SecurityException e) {
+            name = null;
+        }
+
+        if (name != null && name.startsWith(Constants.BT_SERVICE_PREFIX)) {
+            return name.substring(Constants.BT_SERVICE_PREFIX.length());
+        }
+        if (name != null && !name.isEmpty()) {
+            return name;
+        }
+        return device.getAddress();
     }
 
     @Override
@@ -233,20 +368,24 @@ public class JoinGroupActivity extends AppCompatActivity {
                 bluetoothAdapter.cancelDiscovery();
         } catch (SecurityException ignored) {
         }
-        // Do NOT destroy singleton — the live connection must carry over to ChatActivity
+        // Do NOT destroy singleton — the live connection must carry over to
+        // ChatActivity
     }
 
-    // ========== Device List Adapter ==========
+    // ========== Room List Adapter ==========
 
     private class DeviceAdapter extends RecyclerView.Adapter<DeviceAdapter.ViewHolder> {
 
         class ViewHolder extends RecyclerView.ViewHolder {
-            TextView tvName, tvAddress;
+            View root;
+            TextView tvRoomName, tvRoomHost, tvArrow;
 
             ViewHolder(View itemView) {
                 super(itemView);
-                tvName = itemView.findViewById(android.R.id.text1);
-                tvAddress = itemView.findViewById(android.R.id.text2);
+                root = itemView.findViewById(R.id.room_item_root);
+                tvRoomName = itemView.findViewById(R.id.tv_room_name);
+                tvRoomHost = itemView.findViewById(R.id.tv_room_host);
+                tvArrow = itemView.findViewById(R.id.tv_room_arrow);
             }
         }
 
@@ -254,21 +393,7 @@ public class JoinGroupActivity extends AppCompatActivity {
         @Override
         public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
             View view = LayoutInflater.from(parent.getContext())
-                    .inflate(android.R.layout.simple_list_item_2, parent, false);
-
-            // Style for dark theme
-            TextView text1 = view.findViewById(android.R.id.text1);
-            TextView text2 = view.findViewById(android.R.id.text2);
-            text1.setTextColor(getResources().getColor(R.color.text_primary));
-            text2.setTextColor(getResources().getColor(R.color.text_secondary));
-            view.setBackgroundColor(getResources().getColor(R.color.surface));
-            view.setPadding(32, 24, 32, 24);
-
-            ViewGroup.MarginLayoutParams params = new ViewGroup.MarginLayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
-            params.bottomMargin = 8;
-            view.setLayoutParams(params);
-
+                    .inflate(R.layout.item_room, parent, false);
             return new ViewHolder(view);
         }
 
@@ -277,19 +402,31 @@ public class JoinGroupActivity extends AppCompatActivity {
         public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
             BluetoothDevice device = discoveredDevices.get(position);
 
-            String name;
+            String roomName = extractRoomName(device);
+            holder.tvRoomName.setText(roomName);
+
+            // Show the device address or name as secondary info
+            String hostInfo;
             try {
-                name = device.getName();
-                if (name == null || name.isEmpty())
-                    name = "Unknown Device";
+                String devName = device.getName();
+                if (devName != null && devName.startsWith(Constants.BT_SERVICE_PREFIX)) {
+                    hostInfo = "Hosted on " + device.getAddress();
+                } else {
+                    hostInfo = device.getAddress();
+                }
             } catch (SecurityException e) {
-                name = "Unknown Device";
+                hostInfo = device.getAddress();
             }
+            holder.tvRoomHost.setText(hostInfo);
 
-            holder.tvName.setText(name);
-            holder.tvAddress.setText(device.getAddress());
+            // Highlight if selected
+            boolean isSelected = (position == selectedPosition);
+            holder.root.setBackgroundResource(isSelected
+                    ? R.drawable.item_room_selected_bg
+                    : R.drawable.item_room_bg);
+            holder.tvArrow.setVisibility(isSelected ? View.VISIBLE : View.GONE);
 
-            holder.itemView.setOnClickListener(v -> showPasswordDialog(device));
+            holder.itemView.setOnClickListener(v -> onRoomSelected(device, holder.getAdapterPosition()));
         }
 
         @Override

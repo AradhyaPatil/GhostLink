@@ -14,6 +14,9 @@ import java.io.IOException;
  * Thread that runs a BluetoothServerSocket to accept incoming connections.
  * The host device runs this thread to allow clients to join the group.
  * For each accepted connection, a new ConnectedThread is created.
+ *
+ * The SDP service name includes the group name so that scanning devices
+ * can identify the room: "GhostLink_<GroupName>".
  */
 public class AcceptThread extends Thread {
 
@@ -25,14 +28,17 @@ public class AcceptThread extends Thread {
     private volatile boolean running = true;
 
     @SuppressWarnings("MissingPermission")
-    public AcceptThread(BluetoothAdapter adapter, Handler handler, BluetoothService bluetoothService) {
+    public AcceptThread(BluetoothAdapter adapter, Handler handler,
+            BluetoothService bluetoothService, String groupName) {
         this.handler = handler;
         this.bluetoothService = bluetoothService;
 
+        // Use the group name in the SDP service record so scanners see the room name
+        String serviceName = Constants.BT_SERVICE_PREFIX + (groupName != null ? groupName : "Room");
+
         BluetoothServerSocket tmp = null;
         try {
-            tmp = adapter.listenUsingRfcommWithServiceRecord(
-                    Constants.BT_SERVICE_NAME, Constants.BT_UUID);
+            tmp = adapter.listenUsingRfcommWithServiceRecord(serviceName, Constants.BT_UUID);
         } catch (IOException e) {
             Log.e(TAG, "Failed to create server socket", e);
         } catch (SecurityException e) {

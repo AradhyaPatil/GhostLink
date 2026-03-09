@@ -1,10 +1,12 @@
 package com.wmn.bluetoothmessenger;
 
 import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothDevice;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
+import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
@@ -47,10 +49,11 @@ public class ChatActivity extends AppCompatActivity {
     private RecyclerView rvMessages;
     private EditText etMessage;
     private Button btnSend;
-    private TextView tvGroupName, tvMemberCount, btnLeave, btnBack;
+    private TextView tvGroupName, tvMemberCount, btnLeave, btnBack, btnChangePassword;
 
     // ── Fields ────────────────────────────────────────────────────────────────
-    // (bluetoothService is obtained from the singleton; no local new BluetoothService())
+    // (bluetoothService is obtained from the singleton; no local new
+    // BluetoothService())
     // ─────────────────────────────────────────────────────────────────────────
     private BluetoothService bluetoothService;
     private GroupManager groupManager;
@@ -63,6 +66,20 @@ public class ChatActivity extends AppCompatActivity {
     private String myDeviceName;
     private String groupName;
     private boolean isHost;
+
+    /** Password hash — kept for auto-reconnect after host migration. */
+    private String passwordHash = "";
+
+    /**
+     * Set by HOST_CHANGED: the Bluetooth address of the new host to reconnect to.
+     */
+    private String pendingNewHostAddress = null;
+
+    /**
+     * True while auto-reconnect is in progress (suppresses normal disconnect
+     * handling).
+     */
+    private boolean reconnecting = false;
 
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
 
@@ -79,13 +96,16 @@ public class ChatActivity extends AppCompatActivity {
             groupName = "Group";
 
         // Init views
-        rvMessages    = findViewById(R.id.rv_messages);
-        etMessage     = findViewById(R.id.et_message);
-        btnSend       = findViewById(R.id.btn_send);
-        tvGroupName   = findViewById(R.id.tv_group_name);
+        rvMessages = findViewById(R.id.rv_messages);
+        etMessage = findViewById(R.id.et_message);
+        btnSend = findViewById(R.id.btn_send);
+        tvGroupName = findViewById(R.id.tv_group_name);
         tvMemberCount = findViewById(R.id.tv_member_count);
-        btnLeave      = findViewById(R.id.btn_leave);
-        btnBack       = findViewById(R.id.btn_back);
+        btnLeave = findViewById(R.id.btn_leave);
+        btnBack = findViewById(R.id.btn_back);
+        btnChangePassword = findViewById(R.id.btn_change_password);
+        // Only the host can see / use the change-password button
+        btnChangePassword.setVisibility(isHost ? View.VISIBLE : View.GONE);
 
         tvGroupName.setText(groupName);
 
@@ -93,7 +113,21 @@ public class ChatActivity extends AppCompatActivity {
         BluetoothAdapter bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
         try {
             myDeviceName = bluetoothAdapter.getName();
-            if (myDeviceName == null) myDeviceName = "Me";
+            // If this is the host, the adapter name may have been changed to
+            // "GhostLink_<room>" for discoverability — strip the prefix so
+            // chat messages show the real device name.
+            if (myDeviceName != null && myDeviceName.startsWith(Constants.BT_SERVICE_PREFIX)) {
+                // Use the original name stored in BluetoothService
+                BluetoothService svc = BluetoothService.getInstance();
+                if (svc != null && svc.getOriginalAdapterName() != null) {
+                    myDeviceName = svc.getOriginalAdapterName();
+                } else {
+                    // Fallback: strip the prefix
+                    myDeviceName = myDeviceName.substring(Constants.BT_SERVICE_PREFIX.length());
+                }
+            }
+            if (myDeviceName == null)
+                myDeviceName = "Me";
         } catch (SecurityException e) {
             myDeviceName = "Me";
         }
@@ -115,6 +149,9 @@ public class ChatActivity extends AppCompatActivity {
         btnSend.setOnClickListener(v -> sendMessage());
         btnLeave.setOnClickListener(v -> confirmLeave());
         btnBack.setOnClickListener(v -> confirmLeave());
+        if (isHost) {
+            btnChangePassword.setOnClickListener(v -> showChangePasswordDialog());
+        }
 
         // Handle IME send action
         etMessage.setOnEditorActionListener((v, actionId, event) -> {
@@ -130,13 +167,12 @@ public class ChatActivity extends AppCompatActivity {
 
     private void setupGroupManager() {
         groupManager = new GroupManager();
+        // Store password hash for potential host migration reconnect
+        passwordHash = getIntent().getStringExtra(Constants.EXTRA_PASSWORD_HASH);
+        if (passwordHash == null)
+            passwordHash = "";
+
         if (isHost) {
-            // BUG FIX: use the REAL passwordHash instead of hard-coding ""
-            String passwordHash = getIntent().getStringExtra(Constants.EXTRA_PASSWORD_HASH);
-            if (passwordHash == null) passwordHash = "";
-            // GroupInfo stores the hash directly; pass the pre-hashed value
-            // via setJoinedGroup-style approach so we don't re-hash it.
-            // We create the group with the empty password slot and then fix it:
             groupManager.createGroupWithHash(groupName, passwordHash, myDeviceName);
         } else {
             groupManager.setJoinedGroup(groupName, "Host", myDeviceName);
@@ -206,53 +242,21 @@ public class ChatActivity extends AppCompatActivity {
     }
 
     private void setupBluetoothService() {
-        Handler btHandler = new Handler(Looper.getMainLooper()) {
-            @Override
-            public void handleMessage(Message msg) {
-                switch (msg.what) {
-                    case Constants.MSG_READ:
-                        handleReceivedMessage((String) msg.obj);
-                        break;
-
-                    case Constants.MSG_CONNECTED:
-                        // Only the HOST receives this (new member finished auth)
-                        if (isHost) {
-                            String deviceName = (String) msg.obj;
-                            groupManager.addMember(deviceName);
-                            addSystemMessage("📱 " + deviceName + " joined");
-                            updateMemberCount();
-                            sessionManager.resetActivity();
-                        }
-                        break;
-
-                    case Constants.MSG_DISCONNECTED:
-                        String leftDevice = (String) msg.obj;
-                        groupManager.removeMember(leftDevice);
-                        addSystemMessage("👋 " + leftDevice + " left");
-                        updateMemberCount();
-                        break;
-                }
-            }
-        };
-
-        // BUG FIX ①: attach to the LIVE singleton instead of creating a new instance
+        // Attach to the LIVE singleton — do not create a new instance.
         bluetoothService = BluetoothService.getInstance();
         if (bluetoothService == null) {
             Toast.makeText(this, "Bluetooth session lost. Please restart.", Toast.LENGTH_LONG).show();
             finish();
             return;
         }
-        bluetoothService.setHandler(btHandler);
 
-        // Seed the groupManager with members that were already connected before
-        // this Activity started (e.g. members who joined during CreateGroupActivity).
-        for (String name : bluetoothService.getConnectedDeviceNames()) {
-            groupManager.addMember(name);
-        }
-        updateMemberCount();
-
+        // ── Step 1: configure auth BEFORE swapping the handler ────────────────
+        // This closes the window where an incoming connection could be checked
+        // against the old (CreateGroupActivity) callback.
         if (isHost) {
             String passwordHash = getIntent().getStringExtra(Constants.EXTRA_PASSWORD_HASH);
+            if (passwordHash == null)
+                passwordHash = "";
             bluetoothService.setPasswordHash(passwordHash);
             bluetoothService.setAuthCallback(new BluetoothService.AuthCallback() {
                 @Override
@@ -262,19 +266,80 @@ public class ChatActivity extends AppCompatActivity {
 
                 @Override
                 public void onAuthSuccess(String deviceName) {
-                    // BUG FIX ③: MSG_CONNECTED already calls groupManager.addMember().
-                    // Do NOT call it again here to prevent duplicate member entries.
+                    // MSG_CONNECTED handler already calls groupManager.addMember().
+                    // Do NOT call it again here to avoid duplicate member entries.
                     sessionManager.resetActivity();
                 }
 
                 @Override
                 public void onAuthFail(String deviceName) {
-                    uiHandler.post(() -> addSystemMessage("🚫 Auth failed: " + deviceName));
+                    uiHandler.post(() -> addSystemMessage("\uD83D\uDEAB Auth failed for: " + deviceName));
                 }
             });
-            // BUG FIX ① continued: AcceptThread is ALREADY running in the singleton.
-            // Do NOT call startHosting() again; doing so would reset pending connections.
+            // AcceptThread is ALREADY running inside the singleton from
+            // CreateGroupActivity.
+            // Do NOT call startHosting() again — it would discard all current connections.
         }
+
+        // ── Step 2: swap the UI handler (propagates to every ConnectedThread) ─
+        Handler btHandler = new Handler(Looper.getMainLooper()) {
+            @Override
+            public void handleMessage(Message msg) {
+                switch (msg.what) {
+                    case Constants.MSG_READ:
+                        handleReceivedMessage((String) msg.obj);
+                        break;
+
+                    // MSG_CONNECTED is handled after MSG_DISCONNECTED below
+
+                    case Constants.MSG_DISCONNECTED:
+                        String leftDevice = (String) msg.obj;
+                        // If we have a pending host migration → auto-reconnect
+                        if (pendingNewHostAddress != null && !isHost && !reconnecting) {
+                            reconnecting = true;
+                            addSystemMessage("🔄 Host migrating, reconnecting...");
+                            autoReconnectToNewHost();
+                        } else if (groupManager.getMembers().contains(leftDevice)) {
+                            groupManager.removeMember(leftDevice);
+                            addSystemMessage("\uD83D\uDC4B " + leftDevice + " disconnected");
+                            updateMemberCount();
+                        }
+                        break;
+
+                    case Constants.MSG_CONNECTED:
+                        if (reconnecting) {
+                            // Reconnection after migration succeeded
+                            reconnecting = false;
+                            pendingNewHostAddress = null;
+                            addSystemMessage("✅ Reconnected to new host");
+                            updateMemberCount();
+                        } else if (isHost) {
+                            String deviceName = (String) msg.obj;
+                            groupManager.addMember(deviceName);
+                            addSystemMessage("\uD83D\uDCF1 " + deviceName + " joined");
+                            updateMemberCount();
+                            sessionManager.resetActivity();
+                        }
+                        break;
+
+                    case Constants.MSG_CONNECTION_FAILED:
+                        if (reconnecting) {
+                            // Retry after a short delay
+                            String failReason = (String) msg.obj;
+                            Log.d("ChatActivity", "Reconnect failed: " + failReason + ", retrying...");
+                            uiHandler.postDelayed(() -> autoReconnectToNewHost(), 2000);
+                        }
+                        break;
+                }
+            }
+        };
+        bluetoothService.setHandler(btHandler);
+
+        // ── Step 3: seed groupManager with pre-existing connections ───────────
+        for (String name : bluetoothService.getConnectedDeviceNames()) {
+            groupManager.addMember(name);
+        }
+        updateMemberCount();
     }
 
     /**
@@ -294,6 +359,14 @@ public class ChatActivity extends AppCompatActivity {
                 String sender = payload.substring(0, colonIdx);
                 String content = payload.substring(colonIdx + 1);
 
+                // Skip messages from ourselves — the host rebroadcasts to ALL
+                // clients including the original sender, so without this check
+                // the sender would see their own message twice (once as "sent",
+                // once as "received").
+                if (sender.equals(myDeviceName)) {
+                    return;
+                }
+
                 ChatMessage msg = ChatMessage.createMessage(sender, content, false);
                 messageManager.addMessage(msg);
 
@@ -303,8 +376,10 @@ public class ChatActivity extends AppCompatActivity {
                 }
             }
         } else if (rawMessage.startsWith(Constants.PROTO_JOIN)) {
-            // BUG FIX: Host learns of new members via MSG_CONNECTED (not via PROTO_JOIN broadcast).
-            // Clients learn of OTHER members via PROTO_JOIN.  Also skip self-join notifications.
+            // BUG FIX: Host learns of new members via MSG_CONNECTED (not via PROTO_JOIN
+            // broadcast).
+            // Clients learn of OTHER members via PROTO_JOIN. Also skip self-join
+            // notifications.
             if (!isHost) {
                 String deviceName = rawMessage.substring(Constants.PROTO_JOIN.length());
                 if (!deviceName.equals(myDeviceName)) {
@@ -315,13 +390,73 @@ public class ChatActivity extends AppCompatActivity {
             }
         } else if (rawMessage.startsWith(Constants.PROTO_LEAVE)) {
             String deviceName = rawMessage.substring(Constants.PROTO_LEAVE.length());
-            groupManager.removeMember(deviceName);
-            addSystemMessage("👋 " + deviceName + " left");
-            updateMemberCount();
+            // Only process if the member is still tracked (dedup with MSG_DISCONNECTED)
+            if (groupManager.getMembers().contains(deviceName)) {
+                groupManager.removeMember(deviceName);
+                addSystemMessage("👋 " + deviceName + " left");
+                updateMemberCount();
+            }
         } else if (rawMessage.equals(Constants.PROTO_SESSION_END)) {
             addSystemMessage("⏰ Group session ended by host");
             Toast.makeText(this, R.string.session_timeout, Toast.LENGTH_LONG).show();
             new Handler(Looper.getMainLooper()).postDelayed(this::leaveGroup, 2000);
+
+        } else if (rawMessage.startsWith(Constants.PROTO_PROMOTE_HOST)) {
+            // This device has been chosen to be the new host
+            String payload = rawMessage.substring(Constants.PROTO_PROMOTE_HOST.length());
+            int colonIdx = payload.indexOf(":");
+            if (colonIdx > 0) {
+                String roomName = payload.substring(0, colonIdx);
+                String newPasswordHash = payload.substring(colonIdx + 1);
+
+                addSystemMessage("\uD83D\uDC51 You are now the host of " + roomName);
+
+                // Switch to host mode
+                isHost = true;
+                groupName = roomName;
+                passwordHash = newPasswordHash;
+                tvGroupName.setText(groupName);
+
+                // Show change-password button for new host
+                btnChangePassword.setVisibility(View.VISIBLE);
+                btnChangePassword.setOnClickListener(v -> showChangePasswordDialog());
+
+                // Set up GroupManager as host
+                groupManager.clearGroup();
+                groupManager.createGroupWithHash(roomName, newPasswordHash, myDeviceName);
+
+                // Switch BluetoothService to host mode
+                bluetoothService.switchToHost(roomName, newPasswordHash);
+
+                // Re-set auth callback for the new host
+                bluetoothService.setAuthCallback(new BluetoothService.AuthCallback() {
+                    @Override
+                    public boolean onAuthRequest(String receivedHash) {
+                        return groupManager.authenticate(receivedHash);
+                    }
+
+                    @Override
+                    public void onAuthSuccess(String deviceName) {
+                        uiHandler.post(() -> {
+                            groupManager.addMember(deviceName);
+                            updateMemberCount();
+                        });
+                    }
+
+                    @Override
+                    public void onAuthFail(String deviceName) {
+                        uiHandler.post(() -> addSystemMessage("\uD83D\uDEAB Auth failed for: " + deviceName));
+                    }
+                });
+
+                updateMemberCount();
+            }
+
+        } else if (rawMessage.startsWith(Constants.PROTO_HOST_CHANGED)) {
+            // Another member has been promoted; store their address for auto-reconnect
+            String newHostAddr = rawMessage.substring(Constants.PROTO_HOST_CHANGED.length());
+            pendingNewHostAddress = newHostAddr;
+            addSystemMessage("\uD83D\uDD04 Host is migrating...");
         }
     }
 
@@ -366,22 +501,102 @@ public class ChatActivity extends AppCompatActivity {
                 .show();
     }
 
+    /**
+     * Host-only: change the room password.
+     * Updates BluetoothService + GroupManager so new joiners are authenticated
+     * against the new password. Existing members stay connected.
+     */
+    private void showChangePasswordDialog() {
+        EditText etNew = new EditText(this);
+        etNew.setHint("New password (min 4 chars)");
+        etNew.setInputType(android.text.InputType.TYPE_CLASS_TEXT
+                | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        etNew.setPadding(48, 32, 48, 32);
+
+        new AlertDialog.Builder(this)
+                .setTitle("Change Room Password")
+                .setMessage("Only new joiners will need the new password. Current members stay connected.")
+                .setView(etNew)
+                .setPositiveButton("Change", (dialog, which) -> {
+                    String newPw = etNew.getText().toString().trim();
+                    if (newPw.length() < 4) {
+                        Toast.makeText(this, "Password must be at least 4 characters",
+                                Toast.LENGTH_SHORT).show();
+                        return;
+                    }
+                    String newHash = com.wmn.bluetoothmessenger.model.GroupInfo.hashPassword(newPw);
+                    // Update the in-memory auth state on the host
+                    groupManager.updatePasswordHash(newHash);
+                    bluetoothService.setPasswordHash(newHash);
+                    // Inform all current members via a system message
+                    bluetoothService.broadcastMessage(
+                            com.wmn.bluetoothmessenger.util.Constants.PROTO_MSG
+                                    + "System:Room password changed by host");
+                    addSystemMessage("\uD83D\uDD11 Room password updated");
+                    Toast.makeText(this, "Password changed", Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
     private void leaveGroup() {
-        // Notify peers we are leaving
         if (bluetoothService != null) {
+            if (isHost && bluetoothService.getConnectedCount() > 0) {
+                // ── Host migration: promote a member before leaving ──
+                String promoted = bluetoothService.initiateHostMigration(
+                        groupName, passwordHash, myDeviceName);
+
+                if (promoted != null) {
+                    addSystemMessage("\uD83D\uDC51 Promoted " + promoted + " to host");
+                }
+
+                // Give the promoted member time to start their server,
+                // then disconnect quietly (no SESSION_END).
+                uiHandler.postDelayed(() -> {
+                    messageManager.shutdown();
+                    sessionManager.shutdown();
+                    groupManager.clearGroup();
+
+                    BluetoothService svc = BluetoothService.getInstance();
+                    if (svc != null) {
+                        svc.disconnectQuietly();
+                    }
+                    BluetoothService.destroyInstance();
+                    finish();
+                }, 1500); // 1.5s delay for migration
+                return;
+            }
+
+            // Non-host or no members: normal leave
             bluetoothService.broadcastMessage(Constants.PROTO_LEAVE + myDeviceName);
         }
 
-        // Shut down managers
         messageManager.shutdown();
         sessionManager.shutdown();
         groupManager.clearGroup();
-
-        // BUG FIX: fully destroy the singleton so connections don't linger
         BluetoothService.destroyInstance();
-
-        // Return to main
         finish();
+    }
+
+    /**
+     * Auto-reconnect to the new host after host migration.
+     */
+    @SuppressWarnings("MissingPermission")
+    private void autoReconnectToNewHost() {
+        if (pendingNewHostAddress == null || bluetoothService == null) {
+            reconnecting = false;
+            return;
+        }
+
+        try {
+            BluetoothAdapter btAdapter = BluetoothAdapter.getDefaultAdapter();
+            BluetoothDevice newHost = btAdapter.getRemoteDevice(pendingNewHostAddress);
+            bluetoothService.connectToHostWithHash(newHost, passwordHash);
+        } catch (Exception e) {
+            addSystemMessage("❌ Failed to reconnect: " + e.getMessage());
+            reconnecting = false;
+            pendingNewHostAddress = null;
+        }
     }
 
     @Override

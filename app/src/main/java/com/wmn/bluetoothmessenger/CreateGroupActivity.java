@@ -48,12 +48,12 @@ public class CreateGroupActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_create_group);
 
-        etGroupName   = findViewById(R.id.et_group_name);
-        etPassword    = findViewById(R.id.et_password);
-        btnCreate     = findViewById(R.id.btn_create);
-        tvStatus      = findViewById(R.id.tv_status);
-        progressBar   = findViewById(R.id.progress_bar);
-        btnStartChat  = findViewById(R.id.btn_start_chat);
+        etGroupName = findViewById(R.id.et_group_name);
+        etPassword = findViewById(R.id.et_password);
+        btnCreate = findViewById(R.id.btn_create);
+        tvStatus = findViewById(R.id.tv_status);
+        progressBar = findViewById(R.id.progress_bar);
+        btnStartChat = findViewById(R.id.btn_start_chat);
         tvMemberCount = findViewById(R.id.tv_member_count_create);
 
         TextView btnBack = findViewById(R.id.btn_back);
@@ -72,7 +72,8 @@ public class CreateGroupActivity extends AppCompatActivity {
                         joinedCount++;
                         tvStatus.setText("✓ " + deviceName + " joined!");
                         tvStatus.setVisibility(View.VISIBLE);
-                        tvMemberCount.setText(joinedCount + (joinedCount == 1 ? " member waiting" : " members waiting"));
+                        tvMemberCount
+                                .setText(joinedCount + (joinedCount == 1 ? " member waiting" : " members waiting"));
                         tvMemberCount.setVisibility(View.VISIBLE);
                         // Reveal "Start Chat" button on first join
                         btnStartChat.setVisibility(View.VISIBLE);
@@ -95,11 +96,20 @@ public class CreateGroupActivity extends AppCompatActivity {
     @SuppressWarnings("MissingPermission")
     private void createGroup() {
         String groupName = etGroupName.getText().toString().trim();
-        String password  = etPassword.getText().toString().trim();
+        String password = etPassword.getText().toString().trim();
 
-        if (groupName.isEmpty()) { etGroupName.setError("Enter a group name"); return; }
-        if (password.isEmpty())  { etPassword.setError("Enter a password");    return; }
-        if (password.length() < 4) { etPassword.setError("Password must be at least 4 characters"); return; }
+        if (groupName.isEmpty()) {
+            etGroupName.setError("Enter a group name");
+            return;
+        }
+        if (password.isEmpty()) {
+            etPassword.setError("Enter a password");
+            return;
+        }
+        if (password.length() < 4) {
+            etPassword.setError("Password must be at least 4 characters");
+            return;
+        }
 
         if (!PermissionHelper.hasBluetoothPermissions(this)) {
             PermissionHelper.requestBluetoothPermissions(this);
@@ -110,7 +120,8 @@ public class CreateGroupActivity extends AppCompatActivity {
         String deviceName;
         try {
             deviceName = bluetoothAdapter.getName();
-            if (deviceName == null) deviceName = "Host";
+            if (deviceName == null)
+                deviceName = "Host";
         } catch (SecurityException e) {
             deviceName = "Host";
         }
@@ -153,7 +164,7 @@ public class CreateGroupActivity extends AppCompatActivity {
         }
 
         // Start hosting
-        svc.startHosting();
+        svc.startHosting(groupName);
 
         // Update UI
         btnCreate.setEnabled(false);
@@ -165,13 +176,14 @@ public class CreateGroupActivity extends AppCompatActivity {
     }
 
     private void navigateToChat() {
-        if (groupManager.getCurrentGroup() == null) return;
+        if (groupManager.getCurrentGroup() == null)
+            return;
         Intent intent = new Intent(this, ChatActivity.class);
-        intent.putExtra(Constants.EXTRA_GROUP_NAME,    groupManager.getCurrentGroup().getGroupName());
+        intent.putExtra(Constants.EXTRA_GROUP_NAME, groupManager.getCurrentGroup().getGroupName());
         intent.putExtra(Constants.EXTRA_PASSWORD_HASH, passwordHash);
-        intent.putExtra(Constants.EXTRA_IS_HOST,       true);
+        intent.putExtra(Constants.EXTRA_IS_HOST, true);
         startActivity(intent);
-        finish();   // CreateGroupActivity is done; live connections stay in singleton
+        finish(); // CreateGroupActivity is done; live connections stay in singleton
     }
 
     @Override
