@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">BT Messenger</string>
+    <string name="app_name">GhostLink</string>
     <string name="tagline">Secure. Local. Ephemeral.</string>
     <string name="create_group">Create Group</string>
     <string name="join_group">Join Group</string>

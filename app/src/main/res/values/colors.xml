@@ -1,22 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="primary">#1A1A2E</color>
-    <color name="primary_dark">#0F0F1A</color>
-    <color name="accent">#00D4AA</color>
-    <color name="accent_dark">#00A888</color>
-    <color name="surface">#16213E</color>
-    <color name="surface_light">#1E2D50</color>
-    <color name="text_primary">#E8E8E8</color>
-    <color name="text_secondary">#8899AA</color>
-    <color name="chat_bubble_sent">#00D4AA</color>
-    <color name="chat_bubble_received">#1E2D50</color>
-    <color name="chat_text_sent">#0F0F1A</color>
-    <color name="chat_text_received">#E8E8E8</color>
+    <!-- Brand palette — derived from the GhostLink logo -->
+    <color name="primary">#0D1024</color>
+    <color name="primary_dark">#080A18</color>
+    <color name="accent">#44E8FF</color>
+    <color name="accent_dark">#2BC4DC</color>
+    <color name="accent_purple">#9B6EFF</color>
+    <color name="surface">#131837</color>
+    <color name="surface_light">#1C2348</color>
+    <color name="text_primary">#E8EEFF</color>
+    <color name="text_secondary">#7B8AB8</color>
+    <color name="chat_bubble_sent">#44E8FF</color>
+    <color name="chat_bubble_received">#1C2348</color>
+    <color name="chat_text_sent">#080A18</color>
+    <color name="chat_text_received">#E8EEFF</color>
     <color name="error">#FF5555</color>
     <color name="warning">#FFB347</color>
     <color name="white">#FFFFFF</color>
     <color name="black">#000000</color>
-    <color name="input_bg">#0D1B3E</color>
-    <color name="divider">#2A3A5C</color>
-    <color name="status_bar">#0A0A1A</color>
+    <color name="input_bg">#0E1430</color>
+    <color name="divider">#252D54</color>
+    <color name="status_bar">#060812</color>
+    <color name="glow_cyan">#44E8FF</color>
+    <color name="glow_purple">#9B6EFF</color>
 </resources>
