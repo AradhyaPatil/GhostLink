@@ -27,7 +27,7 @@ public class GroupManager {
 
     /**
      * Create a group using a pre-computed password hash so the hash is not
-     * hashed a second time.  Used by ChatActivity when the host transitions from
+     * hashed a second time. Used by ChatActivity when the host transitions from
      * CreateGroupActivity and the hash is already available via the Intent.
      */
     public void createGroupWithHash(String groupName, String passwordHash, String hostDeviceName) {
@@ -85,10 +85,9 @@ public class GroupManager {
     /**
      * Set group info when joining as client.
      */
-    public void setJoinedGroup(String groupName, String hostDeviceName, String myDeviceName) {
-        currentGroup = new GroupInfo(groupName, "", hostDeviceName);
+    public void setJoinedGroup(String groupName, String myDeviceName) {
+        currentGroup = new GroupInfo(groupName, "", "Host");
         members.clear();
-        members.add(hostDeviceName);
         members.add(myDeviceName);
     }
 
@@ -108,7 +107,8 @@ public class GroupManager {
      * @param newPasswordHash SHA-256 hex hash of the new password (already hashed).
      */
     public void updatePasswordHash(String newPasswordHash) {
-        if (currentGroup == null) return;
+        if (currentGroup == null)
+            return;
         currentGroup = GroupInfo.withHash(
                 currentGroup.getGroupName(),
                 newPasswordHash,

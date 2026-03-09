@@ -213,6 +213,19 @@ public class BluetoothService {
                         if (authCallback != null) {
                             authCallback.onAuthSuccess(finalDeviceName);
                         }
+
+                        // Tell the new client about existing members (Delay to avoid AUTH_OK handshake
+                        // race condition)
+                        new Handler(Looper.getMainLooper()).postDelayed(() -> {
+                            synchronized (connectedThreads) {
+                                for (ConnectedThread t : connectedThreads) {
+                                    if (t != thread && t.isConnected()) {
+                                        thread.write(Constants.PROTO_JOIN + t.getDeviceName());
+                                    }
+                                }
+                            }
+                        }, 500);
+
                     } else {
                         socket.getOutputStream().write(Constants.PROTO_AUTH_FAIL.getBytes());
                         socket.getOutputStream().flush();
