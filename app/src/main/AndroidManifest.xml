@@ -15,7 +15,15 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
-    <uses-feature android:name="android.hardware.bluetooth" android:required="true" />
+    <!-- Internet for online chat mode -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- Storage for file sharing -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />
+
+    <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
 
     <application
         android:allowBackup="false"
@@ -39,6 +47,11 @@
         <activity android:name=".CreateGroupActivity" android:exported="false" />
         <activity android:name=".JoinGroupActivity" android:exported="false" />
         <activity android:name=".ChatActivity" android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
+        <!-- Online chat activities -->
+        <activity android:name=".OnlineRoomActivity" android:exported="false" />
+        <activity android:name=".OnlineChatActivity" android:exported="false"
             android:windowSoftInputMode="adjustResize" />
 
     </application>

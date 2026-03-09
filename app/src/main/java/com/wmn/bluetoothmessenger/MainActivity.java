@@ -53,6 +53,12 @@ public class MainActivity extends AppCompatActivity {
                 startActivity(new Intent(this, JoinGroupActivity.class));
             }
         });
+
+        // Online chat — no Bluetooth needed
+        Button btnOnline = findViewById(R.id.btn_online_chat);
+        btnOnline.setOnClickListener(v -> {
+            startActivity(new Intent(this, OnlineRoomActivity.class));
+        });
     }
 
     @SuppressWarnings("MissingPermission")

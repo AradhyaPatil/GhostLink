@@ -175,7 +175,7 @@ public class ChatActivity extends AppCompatActivity {
         if (isHost) {
             groupManager.createGroupWithHash(groupName, passwordHash, myDeviceName);
         } else {
-            groupManager.setJoinedGroup(groupName, "Host", myDeviceName);
+            groupManager.setJoinedGroup(groupName, myDeviceName);
         }
     }
 
