@@ -7,13 +7,13 @@
     android:orientation="vertical"
     android:padding="32dp">
 
-    <!-- App Icon -->
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="📡"
-        android:textSize="72sp"
-        android:layout_marginBottom="16dp" />
+    <!-- App Logo -->
+    <ImageView
+        android:layout_width="140dp"
+        android:layout_height="140dp"
+        android:src="@drawable/ic_ghostlink_logo"
+        android:contentDescription="GhostLink Logo"
+        android:layout_marginBottom="24dp" />
 
     <!-- App Title -->
     <TextView
@@ -43,7 +43,7 @@
         android:layout_height="56dp"
         android:background="@drawable/rounded_button"
         android:text="@string/create_group"
-        android:textColor="@color/primary_dark"
+        android:textColor="@color/accent"
         android:textSize="16sp"
         android:textStyle="bold"
         android:textAllCaps="false"

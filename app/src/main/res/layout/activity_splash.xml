@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/bg_gradient"
+    android:gravity="center"
+    android:orientation="vertical">
+
+    <!-- App Logo -->
+    <ImageView
+        android:id="@+id/iv_splash_logo"
+        android:layout_width="180dp"
+        android:layout_height="180dp"
+        android:src="@drawable/ic_ghostlink_logo"
+        android:contentDescription="GhostLink"
+        android:layout_marginBottom="32dp" />
+
+    <!-- App Name -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/app_name"
+        android:textColor="@color/accent"
+        android:textSize="40sp"
+        android:textStyle="bold"
+        android:letterSpacing="0.08"
+        android:layout_marginBottom="12dp" />
+
+    <!-- Tagline -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/tagline"
+        android:textColor="@color/text_secondary"
+        android:textSize="16sp"
+        android:letterSpacing="0.2"
+        android:layout_marginBottom="48dp" />
+
+    <!-- Loading spinner -->
+    <ProgressBar
+        android:layout_width="32dp"
+        android:layout_height="32dp"
+        android:indeterminateTint="@color/accent" />
+
+</LinearLayout>

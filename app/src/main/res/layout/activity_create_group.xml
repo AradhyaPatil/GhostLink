@@ -24,7 +24,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="@string/create_group"
-        android:textColor="@color/text_primary"
+        android:textColor="@color/accent"
         android:textSize="28sp"
         android:textStyle="bold"
         android:layout_marginBottom="8dp" />
@@ -33,7 +33,7 @@
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="Host a new local group"
-        android:textColor="@color/text_secondary"
+        android:textColor="@color/accent_dark"
         android:textSize="14sp"
         android:layout_marginBottom="48dp" />
 
@@ -76,7 +76,7 @@
         android:layout_height="56dp"
         android:background="@drawable/rounded_button"
         android:text="@string/create_and_host"
-        android:textColor="@color/primary_dark"
+        android:textColor="@color/accent"
         android:textSize="16sp"
         android:textStyle="bold"
         android:textAllCaps="false" />
