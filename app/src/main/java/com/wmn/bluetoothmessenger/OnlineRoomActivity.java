@@ -29,7 +29,7 @@ public class OnlineRoomActivity extends AppCompatActivity {
     private TextView tvStatus;
     private ProgressBar progressBar;
 
-    private static final String DEFAULT_SERVER = "http://10.0.2.2:3000";
+    private static final String DEFAULT_SERVER = "https://ghostlink-honq.onrender.com";
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
