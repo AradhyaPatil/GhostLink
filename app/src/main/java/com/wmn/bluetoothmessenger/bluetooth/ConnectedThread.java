@@ -15,15 +15,26 @@ import java.io.OutputStream;
  * Continuously reads incoming data and provides a write method for outgoing
  * data.
  * Each connected peer has its own ConnectedThread.
+ *
+ * <h3>Message framing</h3>
+ * All protocol messages are delimited by a newline character ({@code '\n'}).
+ * The read loop buffers incoming bytes and splits them on {@code '\n'} so that
+ * rapidly sent messages (e.g. LEAVE + SESSION_END) are never concatenated
+ * into a single MSG_READ delivery.
  */
 public class ConnectedThread extends Thread {
 
     private static final String TAG = "ConnectedThread";
 
+    /**
+     * Delimiter appended to every outgoing message and used to split incoming data.
+     */
+    public static final String DELIMITER = "\n";
+
     private final BluetoothSocket socket;
     private final InputStream inputStream;
     private final OutputStream outputStream;
-    private volatile Handler handler;   // volatile so setHandler() is visible across threads
+    private volatile Handler handler; // volatile so setHandler() is visible across threads
     private final String deviceName;
     private volatile boolean running = true;
 
@@ -50,15 +61,27 @@ public class ConnectedThread extends Thread {
     public void run() {
         byte[] buffer = new byte[4096];
         int bytes;
+        StringBuilder sb = new StringBuilder();
 
-        // Continuously read from the InputStream
+        // Continuously read from the InputStream, buffering until we find a
+        // newline delimiter. Each delimited segment is dispatched as a separate
+        // MSG_READ message so protocol messages never merge.
         while (running) {
             try {
                 bytes = inputStream.read(buffer);
                 if (bytes > 0) {
-                    String message = new String(buffer, 0, bytes);
-                    // Send the received message to the UI thread via Handler
-                    handler.obtainMessage(Constants.MSG_READ, message).sendToTarget();
+                    sb.append(new String(buffer, 0, bytes));
+
+                    // Process all complete messages (terminated by '\n')
+                    int newlineIdx;
+                    while ((newlineIdx = sb.indexOf(DELIMITER)) >= 0) {
+                        String message = sb.substring(0, newlineIdx);
+                        sb.delete(0, newlineIdx + DELIMITER.length());
+
+                        if (!message.isEmpty()) {
+                            handler.obtainMessage(Constants.MSG_READ, message).sendToTarget();
+                        }
+                    }
                 }
             } catch (IOException e) {
                 if (running) {
@@ -85,22 +108,30 @@ public class ConnectedThread extends Thread {
 
     /**
      * Write a string message to the connected device.
+     * Automatically appends the newline delimiter for proper framing.
      */
     public void write(String message) {
-        write(message.getBytes());
+        write((message + DELIMITER).getBytes());
     }
 
     public String getDeviceName() {
         return deviceName;
     }
 
-    /** Swap the UI handler so that this thread delivers messages to a new Activity. */
+    /**
+     * Swap the UI handler so that this thread delivers messages to a new Activity.
+     */
     public void setHandler(Handler newHandler) {
         this.handler = newHandler;
     }
 
     public boolean isConnected() {
         return socket != null && socket.isConnected() && running;
+    }
+
+    /** Get the Bluetooth MAC address of the remote device. */
+    public String getRemoteAddress() {
+        return socket != null ? socket.getRemoteDevice().getAddress() : "";
     }
 
     /**

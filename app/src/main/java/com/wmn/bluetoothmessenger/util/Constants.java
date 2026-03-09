@@ -13,6 +13,7 @@ public final class Constants {
 
     // Bluetooth
     public static final String BT_SERVICE_NAME = "BluetoothMessenger";
+    public static final String BT_SERVICE_PREFIX = "GhostLink_";
     public static final UUID BT_UUID = UUID.fromString("fa87c0d0-afac-11de-8a39-0800200c9a66");
 
     // Protocol message prefixes
@@ -23,6 +24,8 @@ public final class Constants {
     public static final String PROTO_JOIN = "JOIN:";
     public static final String PROTO_LEAVE = "LEAVE:";
     public static final String PROTO_SESSION_END = "SESSION_END";
+    public static final String PROTO_PROMOTE_HOST = "PROMOTE_HOST:"; // PROMOTE_HOST:roomName:passwordHash
+    public static final String PROTO_HOST_CHANGED = "HOST_CHANGED:"; // HOST_CHANGED:newHostBluetoothAddress
 
     // Timeouts
     public static final long MESSAGE_TTL_MS = 60 * 1000; // 1 minute

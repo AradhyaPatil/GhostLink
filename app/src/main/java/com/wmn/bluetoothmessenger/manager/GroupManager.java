@@ -99,4 +99,19 @@ public class GroupManager {
         currentGroup = null;
         members.clear();
     }
+
+    /**
+     * Update the group password hash (host only).
+     * Replaces the current GroupInfo with a new one carrying the new hash
+     * so that subsequent authenticate() calls use the new password.
+     *
+     * @param newPasswordHash SHA-256 hex hash of the new password (already hashed).
+     */
+    public void updatePasswordHash(String newPasswordHash) {
+        if (currentGroup == null) return;
+        currentGroup = GroupInfo.withHash(
+                currentGroup.getGroupName(),
+                newPasswordHash,
+                currentGroup.getHostDeviceName());
+    }
 }
