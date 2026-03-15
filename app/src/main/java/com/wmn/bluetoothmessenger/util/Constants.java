@@ -21,6 +21,7 @@ public final class Constants {
     public static final String PROTO_AUTH_OK = "AUTH_OK";
     public static final String PROTO_AUTH_FAIL = "AUTH_FAIL";
     public static final String PROTO_MSG = "MSG:";
+    public static final String PROTO_FILE = "FILE:";
     public static final String PROTO_JOIN = "JOIN:";
     public static final String PROTO_LEAVE = "LEAVE:";
     public static final String PROTO_SESSION_END = "SESSION_END";
@@ -46,6 +47,8 @@ public final class Constants {
     public static final String EXTRA_PASSWORD_HASH = "password_hash";
     public static final String EXTRA_IS_HOST = "is_host";
     public static final String EXTRA_DEVICE_ADDRESS = "device_address";
+    public static final String EXTRA_USERNAME = "username";
+    public static final String EXTRA_PASSWORD = "password";
 
     // Discoverable duration
     public static final int DISCOVERABLE_DURATION = 300; // 5 minutes

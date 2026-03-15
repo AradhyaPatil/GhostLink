@@ -23,6 +23,7 @@ import io.socket.client.Socket;
 public class SocketService {
 
     private static final String TAG = "SocketService";
+    public static final String DEFAULT_SERVER_URL = "https://ghostlink-honq.onrender.com";
 
     private static SocketService instance;
 
@@ -66,6 +67,13 @@ public class SocketService {
 
     /**
      * Connect to the Socket.IO server.
+     */
+    public void connect() {
+        connect(DEFAULT_SERVER_URL);
+    }
+
+    /**
+     * Connect to the Socket.IO server using an explicit URL.
      */
     public void connect(String serverUrl) {
         try {

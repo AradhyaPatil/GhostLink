@@ -24,12 +24,12 @@ import com.wmn.bluetoothmessenger.util.Constants;
  */
 public class OnlineRoomActivity extends AppCompatActivity {
 
-    private EditText etUsername, etRoomName, etPassword, etServerUrl;
+    private EditText etUsername, etRoomName, etPassword;
     private Button btnConnect;
     private TextView tvStatus;
     private ProgressBar progressBar;
 
-    private static final String DEFAULT_SERVER = "https://ghostlink-honq.onrender.com";
+    private static final String DEFAULT_SERVER = SocketService.DEFAULT_SERVER_URL;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -39,12 +39,9 @@ public class OnlineRoomActivity extends AppCompatActivity {
         etUsername = findViewById(R.id.et_username);
         etRoomName = findViewById(R.id.et_room_name);
         etPassword = findViewById(R.id.et_password);
-        etServerUrl = findViewById(R.id.et_server_url);
         btnConnect = findViewById(R.id.btn_connect);
         tvStatus = findViewById(R.id.tv_status);
         progressBar = findViewById(R.id.progress_bar);
-
-        etServerUrl.setText(DEFAULT_SERVER);
 
         findViewById(R.id.btn_back).setOnClickListener(v -> finish());
         btnConnect.setOnClickListener(v -> attemptConnect());
@@ -54,7 +51,6 @@ public class OnlineRoomActivity extends AppCompatActivity {
         String username = etUsername.getText().toString().trim();
         String roomName = etRoomName.getText().toString().trim();
         String password = etPassword.getText().toString().trim();
-        String serverUrl = etServerUrl.getText().toString().trim();
 
         if (username.isEmpty()) {
             etUsername.setError("Required");
@@ -68,10 +64,6 @@ public class OnlineRoomActivity extends AppCompatActivity {
             etPassword.setError("Required");
             return;
         }
-        if (serverUrl.isEmpty()) {
-            serverUrl = DEFAULT_SERVER;
-        }
-
         // Show loading
         btnConnect.setEnabled(false);
         progressBar.setVisibility(View.VISIBLE);
@@ -82,7 +74,7 @@ public class OnlineRoomActivity extends AppCompatActivity {
         SocketService socketService = SocketService.getInstance();
 
         // Set up handler to catch connection result
-        final String finalServerUrl = serverUrl;
+        final String finalServerUrl = DEFAULT_SERVER;
         final String finalUsername = username;
         final String finalRoomName = roomName;
         final String finalPasswordHash = passwordHash;
@@ -99,7 +91,6 @@ public class OnlineRoomActivity extends AppCompatActivity {
                         intent.putExtra("room_name", finalRoomName);
                         intent.putExtra("username", socketService.getCurrentUsername());
                         intent.putExtra("password", finalPasswordHash);
-                        intent.putExtra("server_url", finalServerUrl);
                         startActivity(intent);
                         finish();
                         break;
@@ -115,26 +106,33 @@ public class OnlineRoomActivity extends AppCompatActivity {
             }
         });
 
-        // Connect and join
-        socketService.connect(serverUrl);
+        // Connect using permanently configured backend URL.
+        socketService.connect();
 
-        // Delay join slightly to let the socket connect
-        new Handler(Looper.getMainLooper()).postDelayed(() -> {
-            if (socketService.isConnected()) {
-                socketService.joinRoom(finalRoomName, finalPasswordHash, finalUsername);
-            } else {
-                // Wait a bit more
-                new Handler(Looper.getMainLooper()).postDelayed(() -> {
-                    if (socketService.isConnected()) {
-                        socketService.joinRoom(finalRoomName, finalPasswordHash, finalUsername);
-                    } else {
-                        progressBar.setVisibility(View.GONE);
-                        btnConnect.setEnabled(true);
-                        tvStatus.setText("Cannot reach server at " + finalServerUrl);
-                        tvStatus.setVisibility(View.VISIBLE);
-                    }
-                }, 3000);
+        // Poll connection state and join as soon as socket is connected.
+        // This is more reliable than fixed short delays on slower networks.
+        final int[] attempts = { 0 };
+        final Handler waitHandler = new Handler(Looper.getMainLooper());
+        Runnable waitForConnectAndJoin = new Runnable() {
+            @Override
+            public void run() {
+                if (socketService.isConnected()) {
+                    socketService.joinRoom(finalRoomName, finalPasswordHash, finalUsername);
+                    return;
+                }
+
+                attempts[0]++;
+                if (attempts[0] >= 30) { // ~15 seconds max wait
+                    progressBar.setVisibility(View.GONE);
+                    btnConnect.setEnabled(true);
+                    tvStatus.setText("Cannot reach server at " + finalServerUrl);
+                    tvStatus.setVisibility(View.VISIBLE);
+                    return;
+                }
+
+                waitHandler.postDelayed(this, 500);
             }
-        }, 1500);
+        };
+        waitHandler.postDelayed(waitForConnectAndJoin, 300);
     }
 }

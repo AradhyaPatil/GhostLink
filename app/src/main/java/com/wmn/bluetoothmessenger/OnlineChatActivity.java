@@ -2,26 +2,30 @@ package com.wmn.bluetoothmessenger;
 
 import android.app.Activity;
 import android.content.ContentResolver;
+import android.content.ContentValues;
 import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
 import android.provider.OpenableColumns;
+import android.provider.MediaStore;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.Button;
+import androidx.core.content.ContextCompat;
 import android.widget.EditText;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
+import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
@@ -38,6 +42,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
@@ -136,6 +141,18 @@ public class OnlineChatActivity extends AppCompatActivity {
                     }
                 });
 
+        // Back press handling
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                if (drawerLayout.isDrawerOpen(findViewById(R.id.nav_drawer))) {
+                    drawerLayout.closeDrawers();
+                } else {
+                    confirmLeave();
+                }
+            }
+        });
+
         // Setup socket handler
         setupSocketService();
 
@@ -217,7 +234,7 @@ public class OnlineChatActivity extends AppCompatActivity {
 
                 String decrypted = CryptoUtil.decrypt(encryptedContent, encryptionKey);
                 if (decrypted != null) {
-                    ChatMessage chatMsg = new ChatMessage(sender, decrypted, false);
+                    ChatMessage chatMsg = ChatMessage.createMessage(sender, decrypted, false);
                     addChatMessage(chatMsg);
                 } else {
                     addSystemMessage("🔒 " + sender + " sent an encrypted message (could not decrypt)");
@@ -246,7 +263,7 @@ public class OnlineChatActivity extends AppCompatActivity {
         socketService.sendMessage(encrypted);
 
         // Show locally (unencrypted, as "mine")
-        ChatMessage myMsg = new ChatMessage(username, text, true);
+        ChatMessage myMsg = ChatMessage.createMessage(username, text, true);
         addChatMessage(myMsg);
 
         etMessage.setText("");
@@ -259,7 +276,7 @@ public class OnlineChatActivity extends AppCompatActivity {
     }
 
     private void addSystemMessage(String text) {
-        ChatMessage sysMsg = new ChatMessage("system", text, ChatMessage.TYPE_SYSTEM);
+        ChatMessage sysMsg = ChatMessage.createSystemMessage(text);
         displayMessages.add(sysMsg);
         messageAdapter.notifyItemInserted(displayMessages.size() - 1);
         rvMessages.scrollToPosition(displayMessages.size() - 1);
@@ -353,6 +370,28 @@ public class OnlineChatActivity extends AppCompatActivity {
 
     private File saveToDownloads(String fileName, byte[] data) {
         try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                ContentValues values = new ContentValues();
+                values.put(MediaStore.Downloads.DISPLAY_NAME, "GhostLink_" + fileName);
+                values.put(MediaStore.Downloads.MIME_TYPE, "application/octet-stream");
+                values.put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/GhostLink");
+
+                Uri uri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+                if (uri == null) {
+                    return null;
+                }
+
+                OutputStream os = getContentResolver().openOutputStream(uri);
+                if (os == null) {
+                    return null;
+                }
+                os.write(data);
+                os.flush();
+                os.close();
+
+                return new File("GhostLink_" + fileName);
+            }
+
             File dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
             File file = new File(dir, "GhostLink_" + fileName);
             FileOutputStream fos = new FileOutputStream(file);
@@ -370,7 +409,7 @@ public class OnlineChatActivity extends AppCompatActivity {
     // ═══════════════════════════════════════════════════════════════════════════
 
     private void confirmLeave() {
-        new AlertDialog.Builder(this, R.style.Theme_MaterialComponents_Dialog_Alert)
+        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Light_Dialog_Alert)
                 .setTitle("Leave Room")
                 .setMessage("Leave this room?")
                 .setPositiveButton("Leave", (d, w) -> leaveRoom())
@@ -381,15 +420,6 @@ public class OnlineChatActivity extends AppCompatActivity {
     private void leaveRoom() {
         SocketService.destroyInstance();
         finish();
-    }
-
-    @Override
-    public void onBackPressed() {
-        if (drawerLayout.isDrawerOpen(findViewById(R.id.nav_drawer))) {
-            drawerLayout.closeDrawers();
-        } else {
-            confirmLeave();
-        }
     }
 
     @Override
@@ -486,9 +516,9 @@ public class OnlineChatActivity extends AppCompatActivity {
             holder.tvUsername.setText(name);
             // Highlight self
             if (name.equals(username)) {
-                holder.tvUsername.setTextColor(getResources().getColor(R.color.accent));
+                holder.tvUsername.setTextColor(ContextCompat.getColor(OnlineChatActivity.this, R.color.accent));
             } else {
-                holder.tvUsername.setTextColor(getResources().getColor(R.color.text_primary));
+                holder.tvUsername.setTextColor(ContextCompat.getColor(OnlineChatActivity.this, R.color.text_primary));
             }
         }
 
