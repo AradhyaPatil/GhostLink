@@ -135,7 +135,7 @@
                 android:background="@drawable/rounded_button"
                 android:text="➤"
                 android:textSize="18sp"
-                android:textColor="@color/primary_dark"
+                android:textColor="@color/text_primary"
                 android:layout_marginStart="8dp" />
         </LinearLayout>
     </LinearLayout>

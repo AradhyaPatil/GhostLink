@@ -1,8 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@drawable/bg_gradient"
+    android:fillViewport="true">
+
+<LinearLayout
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
     android:gravity="center"
     android:orientation="vertical"
     android:padding="32dp">
@@ -40,31 +45,18 @@
     <TextView
         android:layout_width="280dp"
         android:layout_height="wrap_content"
-        android:text="BLUETOOTH (OFFLINE)"
+        android:text="BLUETOOTH OFFLINE"
         android:textColor="@color/text_secondary"
         android:textSize="11sp"
         android:letterSpacing="0.2"
         android:layout_marginBottom="8dp" />
 
     <Button
-        android:id="@+id/btn_create_group"
+        android:id="@+id/btn_offline_chat"
         android:layout_width="280dp"
         android:layout_height="56dp"
         android:background="@drawable/rounded_input"
-        android:text="@string/create_group"
-        android:textColor="@color/text_primary"
-        android:textSize="16sp"
-        android:textStyle="bold"
-        android:textAllCaps="false"
-        android:letterSpacing="0.05"
-        android:layout_marginBottom="12dp" />
-
-    <Button
-        android:id="@+id/btn_join_group"
-        android:layout_width="280dp"
-        android:layout_height="56dp"
-        android:background="@drawable/rounded_input"
-        android:text="@string/join_group"
+        android:text="Offline Chat →"
         android:textColor="@color/text_primary"
         android:textSize="16sp"
         android:textStyle="bold"
@@ -88,7 +80,7 @@
         android:layout_height="56dp"
         android:background="@drawable/rounded_button"
         android:text="Online Chat →"
-        android:textColor="@color/primary_dark"
+        android:textColor="@android:color/white"
         android:textSize="16sp"
         android:textStyle="bold"
         android:textAllCaps="false"
@@ -105,3 +97,4 @@
         android:alpha="0.7" />
 
 </LinearLayout>
+</ScrollView>

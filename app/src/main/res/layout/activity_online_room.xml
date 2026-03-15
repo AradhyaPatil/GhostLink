@@ -1,8 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@drawable/bg_gradient"
+    android:fillViewport="true">
+
+<LinearLayout
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
     android:gravity="center_horizontal"
     android:orientation="vertical"
     android:padding="32dp">
@@ -120,30 +125,9 @@
         android:maxLines="1"
         android:layout_marginBottom="16dp" />
 
-    <!-- Server URL (collapsible) -->
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="SERVER URL (optional)"
-        android:textColor="@color/text_secondary"
-        android:textSize="12sp"
-        android:letterSpacing="0.15"
-        android:layout_marginBottom="6dp" />
-
-    <EditText
-        android:id="@+id/et_server_url"
-        android:layout_width="match_parent"
-        android:layout_height="56dp"
-        android:background="@drawable/rounded_input"
-        android:hint="http://192.168.x.x:3000"
-        android:textColor="@color/text_primary"
-        android:textColorHint="@color/text_secondary"
-        android:textSize="14sp"
-        android:paddingStart="20dp"
-        android:paddingEnd="20dp"
-        android:inputType="textUri"
-        android:maxLines="1"
-        android:layout_marginBottom="32dp" />
+    <Space
+        android:layout_width="1dp"
+        android:layout_height="16dp" />
 
     <!-- Connect Button -->
     <Button
@@ -152,7 +136,7 @@
         android:layout_height="56dp"
         android:background="@drawable/rounded_button"
         android:text="CONNECT →"
-        android:textColor="@color/primary_dark"
+        android:textColor="@color/text_primary"
         android:textSize="16sp"
         android:textStyle="bold"
         android:textAllCaps="false"
@@ -177,3 +161,4 @@
         android:visibility="gone" />
 
 </LinearLayout>
+</ScrollView>
