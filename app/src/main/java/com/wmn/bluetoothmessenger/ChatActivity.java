@@ -2,10 +2,20 @@ package com.wmn.bluetoothmessenger;
 
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothDevice;
+import android.content.ContentResolver;
+import android.content.ContentValues;
+import android.content.Intent;
+import android.database.Cursor;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
+import android.provider.OpenableColumns;
+import android.provider.MediaStore;
+import android.util.Base64;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -15,9 +25,13 @@ import android.widget.EditText;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AlertDialog;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.ContextCompat;
+import androidx.drawerlayout.widget.DrawerLayout;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
@@ -28,6 +42,11 @@ import com.wmn.bluetoothmessenger.manager.SessionManager;
 import com.wmn.bluetoothmessenger.model.ChatMessage;
 import com.wmn.bluetoothmessenger.util.Constants;
 
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Date;
@@ -46,10 +65,12 @@ import java.util.Locale;
  */
 public class ChatActivity extends AppCompatActivity {
 
-    private RecyclerView rvMessages;
+    private DrawerLayout drawerLayout;
+    private RecyclerView rvMessages, rvUsers;
     private EditText etMessage;
-    private Button btnSend;
-    private TextView tvGroupName, tvMemberCount, btnLeave, btnBack, btnChangePassword;
+    private Button btnSend, btnAttach;
+    private TextView tvGroupName, tvMemberCount, btnLeave, btnBack, btnChangePassword, btnMenu;
+    private TextView drawerMemberCount, drawerMyName;
 
     // ── Fields ────────────────────────────────────────────────────────────────
     // (bluetoothService is obtained from the singleton; no local new
@@ -61,7 +82,9 @@ public class ChatActivity extends AppCompatActivity {
     private SessionManager sessionManager;
 
     private MessageAdapter messageAdapter;
+    private UserAdapter userAdapter;
     private final List<ChatMessage> displayMessages = new ArrayList<>();
+    private final List<String> memberUsers = new ArrayList<>();
 
     private String myDeviceName;
     private String groupName;
@@ -81,6 +104,9 @@ public class ChatActivity extends AppCompatActivity {
      */
     private boolean reconnecting = false;
 
+    private static final int MAX_FILE_SIZE = 512 * 1024; // 512 KB for Bluetooth transfer
+    private ActivityResultLauncher<Intent> filePickerLauncher;
+
     private final Handler uiHandler = new Handler(Looper.getMainLooper());
 
     @Override
@@ -96,23 +122,33 @@ public class ChatActivity extends AppCompatActivity {
             groupName = "Group";
 
         // Init views
+        drawerLayout = findViewById(R.id.drawer_layout);
         rvMessages = findViewById(R.id.rv_messages);
+        rvUsers = findViewById(R.id.rv_users);
         etMessage = findViewById(R.id.et_message);
         btnSend = findViewById(R.id.btn_send);
+        btnAttach = findViewById(R.id.btn_attach);
         tvGroupName = findViewById(R.id.tv_group_name);
         tvMemberCount = findViewById(R.id.tv_member_count);
         btnLeave = findViewById(R.id.btn_leave);
         btnBack = findViewById(R.id.btn_back);
+        btnMenu = findViewById(R.id.btn_menu);
         btnChangePassword = findViewById(R.id.btn_change_password);
+        drawerMemberCount = findViewById(R.id.drawer_member_count);
+        drawerMyName = findViewById(R.id.drawer_my_name);
         // Only the host can see / use the change-password button
         btnChangePassword.setVisibility(isHost ? View.VISIBLE : View.GONE);
 
         tvGroupName.setText(groupName);
 
-        // Get device name – no BluetoothAdapter reference needed after this point
+        // Get device name – prefer explicit username from room form when present.
+        String typedUsername = getIntent().getStringExtra(Constants.EXTRA_USERNAME);
         BluetoothAdapter bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
         try {
-            myDeviceName = bluetoothAdapter.getName();
+            myDeviceName = typedUsername;
+            if (myDeviceName == null || myDeviceName.trim().isEmpty()) {
+                myDeviceName = bluetoothAdapter.getName();
+            }
             // If this is the host, the adapter name may have been changed to
             // "GhostLink_<room>" for discoverability — strip the prefix so
             // chat messages show the real device name.
@@ -139,6 +175,10 @@ public class ChatActivity extends AppCompatActivity {
         messageAdapter = new MessageAdapter();
         rvMessages.setAdapter(messageAdapter);
 
+        rvUsers.setLayoutManager(new LinearLayoutManager(this));
+        userAdapter = new UserAdapter();
+        rvUsers.setAdapter(userAdapter);
+
         // Setup managers
         setupGroupManager();
         setupMessageManager();
@@ -149,9 +189,20 @@ public class ChatActivity extends AppCompatActivity {
         btnSend.setOnClickListener(v -> sendMessage());
         btnLeave.setOnClickListener(v -> confirmLeave());
         btnBack.setOnClickListener(v -> confirmLeave());
+        btnMenu.setOnClickListener(v -> drawerLayout.openDrawer(findViewById(R.id.nav_drawer)));
+        findViewById(R.id.drawer_btn_leave).setOnClickListener(v -> confirmLeave());
         if (isHost) {
             btnChangePassword.setOnClickListener(v -> showChangePasswordDialog());
         }
+        btnAttach.setOnClickListener(v -> openFilePicker());
+
+        filePickerLauncher = registerForActivityResult(
+                new ActivityResultContracts.StartActivityForResult(),
+                result -> {
+                    if (result.getResultCode() == RESULT_OK && result.getData() != null) {
+                        handleFileSelected(result.getData().getData());
+                    }
+                });
 
         // Handle IME send action
         etMessage.setOnEditorActionListener((v, actionId, event) -> {
@@ -375,6 +426,34 @@ public class ChatActivity extends AppCompatActivity {
                     bluetoothService.broadcastMessage(rawMessage);
                 }
             }
+        } else if (rawMessage.startsWith(Constants.PROTO_FILE)) {
+            // FILE:sender:nameBase64:mimeBase64:dataBase64
+            String payload = rawMessage.substring(Constants.PROTO_FILE.length());
+            String[] parts = payload.split(":", 4);
+            if (parts.length == 4) {
+                String sender = parts[0];
+                if (!sender.equals(myDeviceName)) {
+                    try {
+                        String fileName = new String(Base64.decode(parts[1], Base64.NO_WRAP));
+                        String mimeType = new String(Base64.decode(parts[2], Base64.NO_WRAP));
+                        byte[] fileBytes = Base64.decode(parts[3], Base64.NO_WRAP);
+                        File saved = saveToDownloads(fileName, fileBytes);
+
+                        if (saved != null) {
+                            addSystemMessage("📎 " + sender + " shared: " + fileName);
+                            addSystemMessage("Saved: " + saved.getName());
+                        } else {
+                            addSystemMessage("📎 " + sender + " shared: " + fileName + " (save failed)");
+                        }
+                    } catch (Exception e) {
+                        addSystemMessage("📎 Failed to receive shared file");
+                    }
+                }
+
+                if (isHost) {
+                    bluetoothService.broadcastMessage(rawMessage);
+                }
+            }
         } else if (rawMessage.startsWith(Constants.PROTO_JOIN)) {
             // BUG FIX: Host learns of new members via MSG_CONNECTED (not via PROTO_JOIN
             // broadcast).
@@ -482,6 +561,111 @@ public class ChatActivity extends AppCompatActivity {
         etMessage.setText("");
     }
 
+    private void openFilePicker() {
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("*/*");
+        filePickerLauncher.launch(intent);
+    }
+
+    private void handleFileSelected(Uri uri) {
+        if (uri == null) {
+            return;
+        }
+
+        try {
+            ContentResolver resolver = getContentResolver();
+
+            String fileName = "file";
+            Cursor cursor = resolver.query(uri, null, null, null, null);
+            if (cursor != null && cursor.moveToFirst()) {
+                int idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                if (idx >= 0) {
+                    fileName = cursor.getString(idx);
+                }
+                cursor.close();
+            }
+
+            String mimeType = resolver.getType(uri);
+            if (mimeType == null) {
+                mimeType = "application/octet-stream";
+            }
+
+            InputStream is = resolver.openInputStream(uri);
+            if (is == null) {
+                Toast.makeText(this, "Could not open file", Toast.LENGTH_SHORT).show();
+                return;
+            }
+
+            ByteArrayOutputStream bos = new ByteArrayOutputStream();
+            byte[] buffer = new byte[4096];
+            int read;
+            while ((read = is.read(buffer)) != -1) {
+                bos.write(buffer, 0, read);
+            }
+            is.close();
+
+            byte[] fileBytes = bos.toByteArray();
+            if (fileBytes.length > MAX_FILE_SIZE) {
+                Toast.makeText(this, "File too large for Bluetooth (max 512 KB)", Toast.LENGTH_LONG).show();
+                return;
+            }
+
+            String nameBase64 = Base64.encodeToString(fileName.getBytes(), Base64.NO_WRAP);
+            String mimeBase64 = Base64.encodeToString(mimeType.getBytes(), Base64.NO_WRAP);
+            String dataBase64 = Base64.encodeToString(fileBytes, Base64.NO_WRAP);
+
+            String message = Constants.PROTO_FILE + myDeviceName + ":" + nameBase64 + ":" + mimeBase64 + ":" + dataBase64;
+
+            bluetoothService.broadcastMessage(message);
+            addSystemMessage("📎 You shared: " + fileName);
+            sessionManager.resetActivity();
+        } catch (Exception e) {
+            Log.e("ChatActivity", "File send failed", e);
+            Toast.makeText(this, "Failed to send file", Toast.LENGTH_SHORT).show();
+        }
+    }
+
+    private File saveToDownloads(String fileName, byte[] data) {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                ContentValues values = new ContentValues();
+                values.put(MediaStore.Downloads.DISPLAY_NAME, "GhostLink_" + fileName);
+                values.put(MediaStore.Downloads.MIME_TYPE, "application/octet-stream");
+                values.put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/GhostLink");
+
+                Uri uri = getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values);
+                if (uri == null) {
+                    return null;
+                }
+
+                OutputStream os = getContentResolver().openOutputStream(uri);
+                if (os == null) {
+                    return null;
+                }
+                os.write(data);
+                os.flush();
+                os.close();
+
+                return new File("GhostLink_" + fileName);
+            }
+
+            File dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS);
+            if (dir != null && !dir.exists()) {
+                //noinspection ResultOfMethodCallIgnored
+                dir.mkdirs();
+            }
+            File out = new File(dir, "GhostLink_" + fileName);
+            FileOutputStream fos = new FileOutputStream(out);
+            fos.write(data);
+            fos.close();
+            return out;
+        } catch (Exception e) {
+            Log.e("ChatActivity", "Save file failed", e);
+            return null;
+        }
+    }
+
     private void addSystemMessage(String text) {
         ChatMessage msg = ChatMessage.createSystemMessage(text);
         messageManager.addMessage(msg);
@@ -489,11 +673,21 @@ public class ChatActivity extends AppCompatActivity {
 
     private void updateMemberCount() {
         int count = groupManager.getMemberCount();
-        tvMemberCount.setText(count + (count == 1 ? " member" : " members"));
+        String text = count + (count == 1 ? " member" : " members");
+        tvMemberCount.setText(text);
+        drawerMemberCount.setText(text);
+
+        memberUsers.clear();
+        memberUsers.addAll(groupManager.getMembers());
+        if (myDeviceName != null && !myDeviceName.isEmpty() && !memberUsers.contains(myDeviceName)) {
+            memberUsers.add(0, myDeviceName);
+        }
+        drawerMyName.setText(myDeviceName);
+        userAdapter.notifyDataSetChanged();
     }
 
     private void confirmLeave() {
-        new AlertDialog.Builder(this)
+        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Light_Dialog_Alert)
                 .setTitle("Leave Group")
                 .setMessage("Are you sure you want to leave?")
                 .setPositiveButton("Leave", (d, w) -> leaveGroup())
@@ -513,7 +707,7 @@ public class ChatActivity extends AppCompatActivity {
                 | android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD);
         etNew.setPadding(48, 32, 48, 32);
 
-        new AlertDialog.Builder(this)
+        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Light_Dialog_Alert)
                 .setTitle("Change Room Password")
                 .setMessage("Only new joiners will need the new password. Current members stay connected.")
                 .setView(etNew)
@@ -601,6 +795,10 @@ public class ChatActivity extends AppCompatActivity {
 
     @Override
     public void onBackPressed() {
+        if (drawerLayout != null && drawerLayout.isDrawerOpen(findViewById(R.id.nav_drawer))) {
+            drawerLayout.closeDrawers();
+            return;
+        }
         confirmLeave();
     }
 
@@ -684,6 +882,42 @@ public class ChatActivity extends AppCompatActivity {
         @Override
         public int getItemCount() {
             return displayMessages.size();
+        }
+    }
+
+    private class UserAdapter extends RecyclerView.Adapter<UserAdapter.ViewHolder> {
+
+        class ViewHolder extends RecyclerView.ViewHolder {
+            TextView tvUsername;
+
+            ViewHolder(View itemView) {
+                super(itemView);
+                tvUsername = itemView.findViewById(R.id.tv_username);
+            }
+        }
+
+        @NonNull
+        @Override
+        public ViewHolder onCreateViewHolder(@NonNull ViewGroup parent, int viewType) {
+            View view = LayoutInflater.from(parent.getContext())
+                    .inflate(R.layout.item_user, parent, false);
+            return new ViewHolder(view);
+        }
+
+        @Override
+        public void onBindViewHolder(@NonNull ViewHolder holder, int position) {
+            String name = memberUsers.get(position);
+            holder.tvUsername.setText(name);
+            if (name.equals(myDeviceName)) {
+                holder.tvUsername.setTextColor(ContextCompat.getColor(ChatActivity.this, R.color.accent));
+            } else {
+                holder.tvUsername.setTextColor(ContextCompat.getColor(ChatActivity.this, R.color.text_primary));
+            }
+        }
+
+        @Override
+        public int getItemCount() {
+            return memberUsers.size();
         }
     }
 }

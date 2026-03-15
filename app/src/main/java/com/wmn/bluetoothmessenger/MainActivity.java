@@ -14,7 +14,7 @@ import com.wmn.bluetoothmessenger.util.PermissionHelper;
 
 /**
  * Main launcher activity.
- * Provides options to Create or Join a Bluetooth messaging group.
+ * Provides entry points for offline Bluetooth chat and online WiFi chat.
  * Checks for Bluetooth availability and requests permissions.
  */
 public class MainActivity extends AppCompatActivity {
@@ -39,23 +39,16 @@ public class MainActivity extends AppCompatActivity {
             PermissionHelper.requestBluetoothPermissions(this);
         }
 
-        Button btnCreate = findViewById(R.id.btn_create_group);
-        Button btnJoin = findViewById(R.id.btn_join_group);
-
-        btnCreate.setOnClickListener(v -> {
-            if (checkBluetoothReady()) {
-                startActivity(new Intent(this, CreateGroupActivity.class));
-            }
-        });
-
-        btnJoin.setOnClickListener(v -> {
-            if (checkBluetoothReady()) {
-                startActivity(new Intent(this, JoinGroupActivity.class));
-            }
-        });
-
-        // Online chat — no Bluetooth needed
+        Button btnOffline = findViewById(R.id.btn_offline_chat);
         Button btnOnline = findViewById(R.id.btn_online_chat);
+
+        btnOffline.setOnClickListener(v -> {
+            if (checkBluetoothReady()) {
+                startActivity(new Intent(this, OfflineRoomActivity.class));
+            }
+        });
+
+        // Online chat — no Bluetooth needed.
         btnOnline.setOnClickListener(v -> {
             startActivity(new Intent(this, OnlineRoomActivity.class));
         });

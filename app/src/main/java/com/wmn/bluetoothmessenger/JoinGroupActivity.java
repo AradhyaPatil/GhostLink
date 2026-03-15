@@ -65,6 +65,9 @@ public class JoinGroupActivity extends AppCompatActivity {
 
     /** Hash sent to the host for auth; forwarded to ChatActivity. */
     private String passwordHash = "";
+    private String presetUsername = "";
+    private String presetRoomName = "";
+    private String presetPassword = "";
 
     private final List<BluetoothDevice> discoveredDevices = new ArrayList<>();
     private DeviceAdapter deviceAdapter;
@@ -95,6 +98,14 @@ public class JoinGroupActivity extends AppCompatActivity {
 
         TextView btnBack = findViewById(R.id.btn_back);
         btnBack.setOnClickListener(v -> finish());
+
+        presetUsername = safeTrim(getIntent().getStringExtra(Constants.EXTRA_USERNAME));
+        presetRoomName = safeTrim(getIntent().getStringExtra(Constants.EXTRA_GROUP_NAME));
+        presetPassword = safeTrim(getIntent().getStringExtra(Constants.EXTRA_PASSWORD));
+
+        if (!presetPassword.isEmpty()) {
+            etJoinPassword.setText(presetPassword);
+        }
 
         bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
 
@@ -137,6 +148,12 @@ public class JoinGroupActivity extends AppCompatActivity {
 
         // Join button click
         btnJoinRoom.setOnClickListener(v -> attemptJoin());
+
+        // If launched from OfflineRoomActivity (pre-filled password), go straight
+        // to scan flow.
+        if (!presetPassword.isEmpty()) {
+            btnScan.post(this::startDiscovery);
+        }
     }
 
     // ========== Discovery ==========
@@ -189,8 +206,20 @@ public class JoinGroupActivity extends AppCompatActivity {
                     }
                     if (!exists) {
                         discoveredDevices.add(device);
-                        deviceAdapter.notifyItemInserted(discoveredDevices.size() - 1);
+                        int newIdx = discoveredDevices.size() - 1;
+                        deviceAdapter.notifyItemInserted(newIdx);
                         tvEmpty.setVisibility(View.GONE);
+
+                        // Auto-connect when a preset room name matches the discovered device
+                        if (!presetPassword.isEmpty() && !presetRoomName.isEmpty()
+                                && selectedDevice == null) {
+                            String discoveredRoom = extractRoomName(device);
+                            if (presetRoomName.equalsIgnoreCase(discoveredRoom)) {
+                                final BluetoothDevice matched = device;
+                                final int matchedIdx = newIdx;
+                                handler.post(() -> onRoomSelected(matched, matchedIdx));
+                            }
+                        }
                     }
                 }
             } else if (BluetoothAdapter.ACTION_DISCOVERY_FINISHED.equals(action)) {
@@ -211,6 +240,16 @@ public class JoinGroupActivity extends AppCompatActivity {
      * Called when the user taps a discovered room in the list.
      */
     private void onRoomSelected(BluetoothDevice device, int position) {
+        if (!presetPassword.isEmpty()) {
+            // OfflineRoomActivity already collected password; connect immediately.
+            selectedDevice = device;
+            selectedPosition = position;
+            setJoinLoading(true);
+            hideError();
+            connectToDevice(device, presetPassword);
+            return;
+        }
+
         int oldPos = selectedPosition;
         selectedDevice = device;
         selectedPosition = position;
@@ -321,13 +360,20 @@ public class JoinGroupActivity extends AppCompatActivity {
 
     @SuppressWarnings("MissingPermission")
     private void navigateToChat(String hostDeviceName) {
-        String roomName = selectedDevice != null ? extractRoomName(selectedDevice) : hostDeviceName + "'s Group";
+        String roomName = !presetRoomName.isEmpty()
+                ? presetRoomName
+                : (selectedDevice != null ? extractRoomName(selectedDevice) : hostDeviceName + "'s Group");
         Intent intent = new Intent(this, ChatActivity.class);
         intent.putExtra(Constants.EXTRA_GROUP_NAME, roomName);
         intent.putExtra(Constants.EXTRA_PASSWORD_HASH, passwordHash);
         intent.putExtra(Constants.EXTRA_IS_HOST, false);
+        intent.putExtra(Constants.EXTRA_USERNAME, presetUsername);
         startActivity(intent);
         finish();
+    }
+
+    private String safeTrim(String value) {
+        return value == null ? "" : value.trim();
     }
 
     // ========== Helpers ==========

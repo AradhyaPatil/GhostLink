@@ -42,6 +42,9 @@ public class CreateGroupActivity extends AppCompatActivity {
     private String passwordHash = "";
     /** Number of clients that have successfully authenticated. */
     private int joinedCount = 0;
+    /** Optional username entered on OfflineRoomActivity. */
+    private String preferredUsername;
+    private boolean autoCreateRequested = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -58,6 +61,17 @@ public class CreateGroupActivity extends AppCompatActivity {
 
         TextView btnBack = findViewById(R.id.btn_back);
         btnBack.setOnClickListener(v -> finish());
+
+        preferredUsername = getIntent().getStringExtra(Constants.EXTRA_USERNAME);
+        String prefilledRoomName = getIntent().getStringExtra(Constants.EXTRA_GROUP_NAME);
+        String prefilledPassword = getIntent().getStringExtra(Constants.EXTRA_PASSWORD);
+        if (prefilledRoomName != null && !prefilledRoomName.trim().isEmpty()) {
+            etGroupName.setText(prefilledRoomName.trim());
+        }
+        if (prefilledPassword != null && !prefilledPassword.trim().isEmpty()) {
+            etPassword.setText(prefilledPassword.trim());
+            autoCreateRequested = true;
+        }
 
         bluetoothAdapter = BluetoothAdapter.getDefaultAdapter();
         groupManager = new GroupManager();
@@ -91,6 +105,10 @@ public class CreateGroupActivity extends AppCompatActivity {
 
         btnCreate.setOnClickListener(v -> createGroup());
         btnStartChat.setOnClickListener(v -> navigateToChat());
+
+        if (autoCreateRequested) {
+            btnCreate.post(this::createGroup);
+        }
     }
 
     @SuppressWarnings("MissingPermission")
@@ -116,14 +134,16 @@ public class CreateGroupActivity extends AppCompatActivity {
             return;
         }
 
-        // Get device name
-        String deviceName;
-        try {
-            deviceName = bluetoothAdapter.getName();
-            if (deviceName == null)
+        // Use username from OfflineRoomActivity when provided; otherwise fallback.
+        String deviceName = preferredUsername;
+        if (deviceName == null || deviceName.trim().isEmpty()) {
+            try {
+                deviceName = bluetoothAdapter.getName();
+                if (deviceName == null)
+                    deviceName = "Host";
+            } catch (SecurityException e) {
                 deviceName = "Host";
-        } catch (SecurityException e) {
-            deviceName = "Host";
+            }
         }
 
         // Create the group and compute hash
@@ -182,6 +202,7 @@ public class CreateGroupActivity extends AppCompatActivity {
         intent.putExtra(Constants.EXTRA_GROUP_NAME, groupManager.getCurrentGroup().getGroupName());
         intent.putExtra(Constants.EXTRA_PASSWORD_HASH, passwordHash);
         intent.putExtra(Constants.EXTRA_IS_HOST, true);
+        intent.putExtra(Constants.EXTRA_USERNAME, preferredUsername);
         startActivity(intent);
         finish(); // CreateGroupActivity is done; live connections stay in singleton
     }
