@@ -33,6 +33,11 @@ public class SocketService {
     private String currentUsername;
     private final List<String> onlineUsers = new ArrayList<>();
 
+    // Pending join — set before connect() so EVENT_CONNECT can auto-join
+    private String pendingRoom;
+    private String pendingPasswordHash;
+    private String pendingUsername;
+
     // Callback for file reception
     public interface FileReceivedCallback {
         void onFileReceived(String senderName, String fileName, String mimeType, String fileData);
@@ -63,6 +68,16 @@ public class SocketService {
 
     public void setFileCallback(FileReceivedCallback callback) {
         this.fileCallback = callback;
+    }
+
+    /**
+     * Store credentials so EVENT_CONNECT will auto-join the room immediately
+     * without any polling loop.
+     */
+    public void setPendingJoin(String roomName, String passwordHash, String username) {
+        pendingRoom = roomName;
+        pendingPasswordHash = passwordHash;
+        pendingUsername = username;
     }
 
     /**
@@ -182,6 +197,9 @@ public class SocketService {
         }
         currentRoom = null;
         currentUsername = null;
+        pendingRoom = null;
+        pendingPasswordHash = null;
+        pendingUsername = null;
         onlineUsers.clear();
     }
 
@@ -206,14 +224,22 @@ public class SocketService {
     private void setupListeners() {
         socket.on(Socket.EVENT_CONNECT, args -> {
             Log.d(TAG, "Connected to server");
+            // Auto-join if credentials were queued before connect()
+            if (pendingRoom != null) {
+                String room = pendingRoom;
+                String hash = pendingPasswordHash;
+                String user = pendingUsername;
+                pendingRoom = null;
+                pendingPasswordHash = null;
+                pendingUsername = null;
+                joinRoom(room, hash, user);
+            }
         });
 
         socket.on(Socket.EVENT_CONNECT_ERROR, args -> {
-            Log.e(TAG, "Connect error: " + (args.length > 0 ? args[0] : "unknown"));
-            if (handler != null) {
-                new Handler(Looper.getMainLooper()).post(() -> handler.obtainMessage(Constants.MSG_CONNECTION_FAILED,
-                        "Server connection failed").sendToTarget());
-            }
+            // Just log — Socket.IO will keep retrying. The UI timeout handler
+            // in OnlineRoomActivity will report failure after 60 seconds.
+            Log.e(TAG, "Connect error (will retry): " + (args.length > 0 ? args[0] : "unknown"));
         });
 
         // Successfully joined room

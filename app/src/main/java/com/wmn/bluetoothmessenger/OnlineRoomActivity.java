@@ -106,33 +106,33 @@ public class OnlineRoomActivity extends AppCompatActivity {
             }
         });
 
-        // Connect using permanently configured backend URL.
+        // Queue credentials so EVENT_CONNECT inside SocketService will
+        // call joinRoom the instant the socket becomes connected.
+        socketService.setPendingJoin(finalRoomName, finalPasswordHash, finalUsername);
         socketService.connect();
 
-        // Poll connection state and join as soon as socket is connected.
-        // This is more reliable than fixed short delays on slower networks.
-        final int[] attempts = { 0 };
+        // Show a "waking up" hint after 6 seconds (Render free tier cold-starts
+        // can take 30-60 s) and declare failure after 60 seconds.
         final Handler waitHandler = new Handler(Looper.getMainLooper());
-        Runnable waitForConnectAndJoin = new Runnable() {
-            @Override
-            public void run() {
-                if (socketService.isConnected()) {
-                    socketService.joinRoom(finalRoomName, finalPasswordHash, finalUsername);
-                    return;
-                }
 
-                attempts[0]++;
-                if (attempts[0] >= 30) { // ~15 seconds max wait
-                    progressBar.setVisibility(View.GONE);
-                    btnConnect.setEnabled(true);
-                    tvStatus.setText("Cannot reach server at " + finalServerUrl);
-                    tvStatus.setVisibility(View.VISIBLE);
-                    return;
-                }
-
-                waitHandler.postDelayed(this, 500);
+        Runnable wakeHint = () -> {
+            if (progressBar.getVisibility() == View.VISIBLE) {
+                tvStatus.setText("Server is waking up, please wait…");
+                tvStatus.setVisibility(View.VISIBLE);
             }
         };
-        waitHandler.postDelayed(waitForConnectAndJoin, 300);
+
+        Runnable timeout = () -> {
+            if (progressBar.getVisibility() == View.VISIBLE) {
+                progressBar.setVisibility(View.GONE);
+                btnConnect.setEnabled(true);
+                tvStatus.setText("Cannot reach server. Check your internet connection and try again.");
+                tvStatus.setVisibility(View.VISIBLE);
+                socketService.setPendingJoin(null, null, null); // cancel queued join
+            }
+        };
+
+        waitHandler.postDelayed(wakeHint, 6_000);
+        waitHandler.postDelayed(timeout, 60_000);
     }
 }
